@@ -1,6 +1,7 @@
 // ============================================================
 // 存储层 - 基于 localStorage 的本地数据持久化
 // 模拟多端同步：每次写入时打上 sync 标记，联网自动同步
+// v2.0：移除护眼相关字段
 // ============================================================
 
 const Storage = {
@@ -9,26 +10,23 @@ const Storage = {
 
   defaults() {
     return {
-      user: null,                     // { username, email, childName, childAge }
+      user: null,                     // { username, childName, childAge }
       registered: false,
       // 儿童学习数据
       kidAge: 4,
       kidStars: 0,
       kidFlowers: 0,
       knowledgeTree: [],              // 已点亮的知识点 id
-      knowledgeMastery: {},           // { cardId: stars(0-3) }
+      knowledgeMastery: {},          // { cardId: stars(0-3) }
+      knowledgeNodes: 0,              // 已点亮数量（冗余，便于统计）
       dailyTasks: [],                 // 当天任务列表
       dailyTasksDate: null,
       checkedIn: [],                  // 已打卡任务 id
       streak: 0,
       lastStudyDate: null,
       achievements: [],               // 已解锁的 achievement id
-      // 护眼
-      eyeCare: { ...window.APP_DATA.EYE_CARE_DEFAULTS },
-      screenUsedToday: 0,
-      screenDate: null,
-      // 统计
-      dimensionStats: { life: 0, ability: 0, knowledge: 0, focus: 0, sport: 0, emotion: 0 },
+      // 统计维度（v2.0：识字+算数 替代 knowledge）
+      dimensionStats: { life: 0, ability: 0, literacy: 0, arithmetic: 0, focus: 0, sport: 0 },
       weeklyLog: [],                  // [{date, completed, duration}]
       // 家长自建内容
       customCards: [],                // 家长录入的知识卡片

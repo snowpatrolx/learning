@@ -250,17 +250,37 @@ a { color: var(--c-primary); text-decoration: none; cursor: pointer; }
 .modal-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 16px; }
 .modal-close { position: absolute; top: 12px; right: 16px; font-size: 1.3rem; color: var(--c-text-tertiary); cursor: pointer; }
 
-/* ---------- 护眼遮罩 ---------- */
-.eye-rest-overlay {
-  position: fixed; inset: 0; background: rgba(17,24,39,.92); z-index: 300;
-  display: none; align-items: center; justify-content: center; color: #fff;
+/* ---------- 版本徽章 ---------- */
+.ver-badge {
+  display: inline-block; padding: 2px 8px; font-size: .7rem; font-weight: 600;
+  background: var(--c-primary-soft); color: var(--c-primary);
+  border-radius: 10px; margin-right: 10px; vertical-align: middle;
 }
-.eye-rest-overlay.show { display: flex; }
-.eye-rest-box { text-align: center; }
-.eye-rest-icon { font-size: 3rem; margin-bottom: 12px; }
-.eye-rest-box h2 { font-size: 1.4rem; margin-bottom: 6px; }
-.eye-rest-timer { font-size: 3rem; font-weight: 700; margin: 12px 0; color: #fbbf24; }
-.eye-rest-tip { opacity: .7; font-size: .85rem; }
+
+/* ---------- 子分类 Tab ---------- */
+.unit-tabs { display: flex; gap: 6px; flex-wrap: wrap; }
+.unit-tab {
+  padding: 5px 12px; font-size: .82rem; color: var(--c-text-secondary);
+  background: var(--c-surface); border: 1px solid var(--c-border);
+  border-radius: 14px; transition: var(--transition);
+}
+.unit-tab.active { color: var(--c-primary); border-color: var(--c-primary); background: var(--c-primary-soft); }
+
+/* ---------- 输入框 + 自动扩展按钮 ---------- */
+.input-with-action { display: flex; gap: 8px; align-items: stretch; }
+.input-with-action .form-control { flex: 1; }
+.auto-hint { font-size: .78rem; margin-top: 6px; min-height: 16px; }
+
+/* ---------- 知识图谱 ---------- */
+.graph-wrap { width: 100%; overflow-x: auto; background: #fafafa; border-radius: var(--radius-sm); padding: 12px; }
+.graph-svg { width: 100%; height: auto; min-height: 380px; display: block; }
+.graph-legend {
+  display: flex; gap: 16px; flex-wrap: wrap; margin-top: 12px;
+  padding-top: 12px; border-top: 1px dashed var(--c-border-soft);
+  font-size: .82rem; color: var(--c-text-secondary);
+}
+.legend-item { display: inline-flex; align-items: center; gap: 6px; }
+.legend-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; }
 
 /* ---------- Toast ---------- */
 .toast {
