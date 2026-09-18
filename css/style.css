@@ -317,6 +317,68 @@ a { color: var(--c-primary); text-decoration: none; cursor: pointer; }
 .flex { display: flex; }
 .flex-between { display: flex; justify-content: space-between; align-items: center; }
 .gap-2 { gap: 12px; }
+.gap-1 { gap: 6px; }
 .wrap { flex-wrap: wrap; }
 .empty-state { text-align: center; padding: 48px 20px; color: var(--c-text-tertiary); }
 .empty-state .icon { font-size: 2.2rem; margin-bottom: 8px; opacity: .5; }
+
+/* ---------- 星级筛选 ---------- */
+.star-filter { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.filter-label { font-size: .85rem; color: var(--c-text-secondary); margin-right: 4px; }
+.star-btn {
+  padding: 4px 10px; font-size: .82rem; color: var(--c-text-secondary);
+  background: var(--c-surface); border: 1px solid var(--c-border);
+  border-radius: 12px; transition: var(--transition); cursor: pointer;
+}
+.star-btn:hover { border-color: var(--c-primary); }
+.star-btn.active { color: #fff; background: var(--c-primary); border-color: var(--c-primary); }
+
+/* ---------- 全部完成横幅 ---------- */
+.all-done-banner {
+  margin-top: 12px; padding: 10px 14px; border-radius: 8px;
+  background: #ecfdf5; color: #065f46; font-size: .9rem; text-align: center;
+}
+
+/* ---------- 录入卡片行内星级 ---------- */
+.lib-row-mastery { color: #f59e0b; font-size: .85rem; margin-left: 6px; }
+
+/* ---------- 手机端宽度适配增强 ---------- */
+@media (max-width: 768px) {
+  .topbar { padding: 0 12px; height: 52px; }
+  .brand-name { font-size: .9rem; }
+  .content { padding: 16px; padding-bottom: 72px; max-width: 100%; }
+  .page-header { gap: 8px; margin-bottom: 16px; }
+  .page-title { font-size: 1.2rem; }
+  .stat-chips { gap: 6px; }
+  .stat-chip { padding: 3px 8px; font-size: .78rem; }
+  .card-grid.grid-2 { grid-template-columns: 1fr; }
+  .card-grid.grid-3 { grid-template-columns: repeat(2, 1fr); }
+  .form-row { flex-direction: column; gap: 12px; }
+  .form-row > * { width: 100%; }
+  .input-with-action { flex-direction: column; }
+  .input-with-action .btn { width: 100%; }
+  .mod-tabs { flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .mod-tab { flex: 0 0 auto; white-space: nowrap; }
+  .unit-tabs { flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .unit-tab { flex: 0 0 auto; white-space: nowrap; }
+  .star-filter { flex-wrap: nowrap; overflow-x: auto; }
+  .star-btn { flex: 0 0 auto; }
+  .filter-label { flex: 0 0 auto; }
+  .nav-card { padding: 14px; }
+  .nav-card-icon { font-size: 1.4rem; }
+  .task-card { flex-direction: column; gap: 10px; }
+  .task-card-actions { justify-content: flex-end; }
+  .radar-wrap { margin: 0 -8px; }
+  .graph-wrap { padding: 8px; }
+  .graph-svg { min-height: 300px; }
+  .detail-actions { flex-direction: column; }
+  .detail-actions .btn { width: 100%; }
+  .topbar-right .user-name { max-width: 80px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ver-badge { display: none; }
+}
+
+@media (max-width: 380px) {
+  .card-grid.grid-3 { grid-template-columns: 1fr; }
+  .lib-grid { grid-template-columns: repeat(2, 1fr); }
+  .page-title { font-size: 1.1rem; }
+}

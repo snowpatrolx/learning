@@ -1,6 +1,7 @@
 // ============================================================
-// 儿童学习陪伴（家长端）- 主应用逻辑 v2.0
-// 核心功能：识字 + 算数 · 极简风格 · 知识图谱 · 自动扩展
+// 儿童学习陪伴（家长端）- 主应用逻辑 v1.02
+// 核心功能：识字 + 算数
+// 导航：首页(含今日任务) / 知识 / 知识录入 / 知识图谱(含知识树) / 成长报告(含星星兑换) / 设置
 // ============================================================
 
 const App = {
@@ -9,20 +10,24 @@ const App = {
 
   init() {
     this.state = Storage.load();
-    // 兼容旧数据：删除已废弃字段
-    if (this.state.eyeCare) { delete this.state.eyeCare; }
-    if (this.state.screenUsedToday !== undefined) { delete this.state.screenUsedToday; }
-    if (this.state.screenDate) { delete this.state.screenDate; }
-    // 维度统计迁移：knowledge -> literacy/arithmetic
-    if (this.state.dimensionStats) {
-      if (this.state.dimensionStats.knowledge && !this.state.dimensionStats.literacy) {
-        this.state.dimensionStats.literacy = this.state.dimensionStats.knowledge;
-      }
-      delete this.state.dimensionStats.knowledge;
-      delete this.state.dimensionStats.emotion;
-    }
+    this.cleanLegacyState();
     Storage.save(this.state);
     this.render();
+  },
+
+  cleanLegacyState() {
+    // 清理历史废弃字段
+    const s = this.state;
+    delete s.eyeCare;
+    delete s.screenUsedToday;
+    delete s.screenDate;
+    if (s.dimensionStats) {
+      if (s.dimensionStats.knowledge && !s.dimensionStats.literacy) {
+        s.dimensionStats.literacy = s.dimensionStats.knowledge;
+      }
+      delete s.dimensionStats.knowledge;
+      delete s.dimensionStats.emotion;
+    }
   },
 
   navigate(route) {
@@ -34,11 +39,10 @@ const App = {
   buildNav() {
     const menus = [
       { id: 'dashboard', label: '首页' },
-      { id: 'tasks', label: '今日任务' },
       { id: 'knowledge', label: '知识' },
-      { id: 'graph', label: '知识图谱' },
-      { id: 'tree', label: '知识树' },
-      { id: 'report', label: '成长报告' },
+      { id: 'entry', label: '录入' },
+      { id: 'graph', label: '图谱' },
+      { id: 'report', label: '报告' },
       { id: 'settings', label: '设置' }
     ];
     document.getElementById('navMenu').innerHTML = menus.map(m =>
@@ -60,27 +64,26 @@ const App = {
     const pages = {
       login: () => this.pageLogin(),
       dashboard: () => this.pageDashboard(),
-      tasks: () => this.pageTasks(),
       taskSetup: () => this.pageTaskSetup(),
       knowledge: () => this.pageKnowledge(),
       card: () => this.pageCard(),
+      entry: () => this.pageEntry(),
       graph: () => this.pageGraph(),
-      tree: () => this.pageTree(),
       report: () => this.pageReport(),
       settings: () => this.pageSettings()
     };
     c.innerHTML = (pages[this.route] || pages.dashboard)();
-    // 知识图谱渲染后绘制 SVG
     if (this.route === 'graph') this.drawGraph();
+    if (this.route === 'knowledge') this.applyStarFilter();
   },
 
   refreshTopBar() {
     const ua = document.getElementById('userArea');
+    const ver = window.APP_DATA.APP_VERSION;
     if (this.state.user) {
-      const ver = window.APP_DATA.APP_VERSION;
       ua.innerHTML = `<span class="ver-badge">v${ver}</span><span class="user-name" onclick="App.navigate('settings')">${this.state.user.childName || this.state.user.username}</span>`;
     } else {
-      ua.innerHTML = `<span class="ver-badge">v${window.APP_DATA.APP_VERSION}</span>`;
+      ua.innerHTML = `<span class="ver-badge">v${ver}</span>`;
     }
   },
 
@@ -147,7 +150,7 @@ const App = {
     this.navigate('login');
   },
 
-  // ========== 首页 ==========
+  // ========== 首页（合并今日任务） ==========
   pageDashboard() {
     this.generateDailyTasks();
     const u = this.state.user;
@@ -158,6 +161,41 @@ const App = {
     const today = new Date().toISOString().slice(0, 10);
     const litCount = this.countNodesByModule('literacy');
     const mathCount = this.countNodesByModule('arithmetic');
+
+    // 今日任务组
+    const taskGroups = [
+      { cat: 'life', title: '生活任务' },
+      { cat: 'ability', title: '能力任务' },
+      { cat: 'knowledge', title: '知识学习' }
+    ];
+    const tasksHTML = taskGroups.map(g => {
+      const list = tasks.filter(t => t.cat === g.cat);
+      if (!list.length) return '';
+      return `<div class="task-group">
+        <h3 class="task-group-title">${g.title}</h3>
+        ${list.map(t => {
+          const done = (this.state.checkedIn || []).includes(t.uid);
+          const steps = (t.steps || '').split(',').filter(Boolean);
+          const modLabel = t.module ? ` · ${this.catLabel(t.module)}` : '';
+          return `<div class="task-card ${done ? 'done' : ''}">
+            <div class="task-card-main">
+              <div class="task-card-head">
+                <span class="task-cat ${g.cat}">${this.catLabel(g.cat)}${modLabel}</span>
+                <span class="task-name">${t.name}</span>
+                ${t.parent ? '<span class="badge badge-warning">亲子</span>' : ''}
+              </div>
+              <div class="task-meta">约 ${t.duration} 分钟</div>
+              ${steps.length ? `<ol class="task-steps">${steps.map(s => `<li>${s}</li>`).join('')}</ol>` : ''}
+            </div>
+            <div class="task-card-actions">
+              <button class="btn btn-link" onclick="App.editTask('${t.uid}')">编辑</button>
+              <button class="btn ${done ? 'btn-outline' : 'btn-primary'} btn-sm" onclick="App.checkinTask('${t.uid}')">${done ? '已完成' : '打卡'}</button>
+            </div>
+          </div>`;
+        }).join('')}
+      </div>`;
+    }).join('');
+
     return `
       <div class="page-header">
         <div>
@@ -174,49 +212,45 @@ const App = {
       <div class="card mb-3">
         <div class="flex-between mb-1">
           <h3>今日任务</h3>
-          <span class="text-muted">${doneCount}/${total}</span>
+          <div class="flex gap-2">
+            <span class="text-muted">${doneCount}/${total}</span>
+            <button class="btn btn-outline btn-sm" onclick="App.regenerateTasks()">换一批</button>
+            <button class="btn btn-link btn-sm" onclick="App.navigate('taskSetup')">管理</button>
+          </div>
         </div>
         <div class="progress-bar"><div class="progress-fill" style="width:${pct}%"></div></div>
-        <div class="task-mini-list mt-2">
-          ${tasks.slice(0, 3).map(t => {
-            const done = (this.state.checkedIn || []).includes(t.uid);
-            return `<div class="task-mini ${done?'done':''}" onclick="App.navigate('tasks')">
-              <span class="task-cat ${t.cat}">${this.catLabel(t.cat)}</span>
-              <span class="task-mini-name">${t.name}</span>
-              <span class="task-mini-status">${done?'✓':'⏳'}</span>
-            </div>`;
-          }).join('') || '<div class="text-muted">暂无任务</div>'}
-        </div>
-        <button class="btn btn-outline btn-sm btn-block mt-2" onclick="App.navigate('tasks')">查看全部任务</button>
+        ${doneCount === total && total ? `<div class="all-done-banner">今日任务全部完成 🎉 获得 ⭐${total * 3}</div>` : ''}
       </div>
 
-      <div class="card-grid grid-2 mb-3">
+      ${tasksHTML}
+
+      <div class="card-grid grid-2 mb-3 mt-3">
         <div class="card nav-card" onclick="App.navigate('knowledge')">
           <div class="nav-card-icon">📚</div>
           <div>
-            <h4>知识</h4>
-            <p class="text-muted">识字 / 算数 学习与录入</p>
+            <h4>知识学习</h4>
+            <p class="text-muted">识字 ${litCount} · 算数 ${mathCount}</p>
+          </div>
+        </div>
+        <div class="card nav-card" onclick="App.navigate('entry')">
+          <div class="nav-card-icon">➕</div>
+          <div>
+            <h4>知识录入</h4>
+            <p class="text-muted">自动扩展成语/古诗</p>
           </div>
         </div>
         <div class="card nav-card" onclick="App.navigate('graph')">
           <div class="nav-card-icon">🕸️</div>
           <div>
             <h4>知识图谱</h4>
-            <p class="text-muted">识字 ${litCount} · 算数 ${mathCount}</p>
-          </div>
-        </div>
-        <div class="card nav-card" onclick="App.navigate('tree')">
-          <div class="nav-card-icon">🌳</div>
-          <div>
-            <h4>知识树</h4>
-            <p class="text-muted">已点亮 ${this.state.knowledgeNodes || 0} 个知识点</p>
+            <p class="text-muted">网络 + 知识树</p>
           </div>
         </div>
         <div class="card nav-card" onclick="App.navigate('report')">
           <div class="nav-card-icon">📊</div>
           <div>
             <h4>成长报告</h4>
-            <p class="text-muted">多维能力雷达图与周报</p>
+            <p class="text-muted">雷达图 + 星星兑换</p>
           </div>
         </div>
       </div>
@@ -235,12 +269,16 @@ const App = {
   },
 
   countNodesByModule(mod) {
-    const allCards = [...window.APP_DATA.KIDS_CARDS, ...(this.state.customCards || [])];
+    const allCards = this.allCards();
     return allCards.filter(c => c.module === mod && (this.state.knowledgeMastery[c.id] || 0) >= 3).length;
   },
 
+  allCards() {
+    return [...window.APP_DATA.KIDS_CARDS, ...(this.state.customCards || [])];
+  },
+
   recommendCards(age) {
-    return [...window.APP_DATA.KIDS_CARDS, ...(this.state.customCards || [])]
+    return this.allCards()
       .filter(c => c.age <= age)
       .sort((a, b) => (this.state.knowledgeMastery[a.id] ? 1 : 0) - (this.state.knowledgeMastery[b.id] ? 1 : 0))
       .slice(0, 6);
@@ -256,7 +294,7 @@ const App = {
     </div>`;
   },
 
-  // ========== 今日任务 ==========
+  // ========== 今日任务逻辑 ==========
   generateDailyTasks() {
     const today = new Date().toDateString();
     if (this.state.dailyTasksDate === today && this.state.dailyTasks && this.state.dailyTasks.length) return;
@@ -272,62 +310,6 @@ const App = {
     this.state.checkedIn = [];
     this.state._allTasksDone = false;
     Storage.save(this.state);
-  },
-
-  pageTasks() {
-    this.generateDailyTasks();
-    const tasks = this.state.dailyTasks || [];
-    const checked = this.state.checkedIn || [];
-    const doneCount = checked.length;
-    const pct = tasks.length ? Math.round(doneCount / tasks.length * 100) : 0;
-    return `
-      <div class="page-header">
-        <h1 class="page-title">今日任务</h1>
-        <button class="btn btn-outline btn-sm" onclick="App.navigate('taskSetup')">管理任务</button>
-      </div>
-      <div class="card mb-3">
-        <div class="flex-between mb-1">
-          <span>完成进度</span>
-          <span>${doneCount}/${tasks.length}</span>
-        </div>
-        <div class="progress-bar"><div class="progress-fill" style="width:${pct}%"></div></div>
-        <div class="flex gap-2 mt-2">
-          <button class="btn btn-outline btn-sm" onclick="App.regenerateTasks()">换一批</button>
-        </div>
-      </div>
-      ${this.renderTaskGroup('life', '生活任务', tasks)}
-      ${this.renderTaskGroup('ability', '能力任务', tasks)}
-      ${this.renderTaskGroup('knowledge', '知识学习', tasks)}
-      ${doneCount === tasks.length && tasks.length ? `<div class="card text-center success-card"><h3>今日任务全部完成 🎉</h3><p>获得 ⭐${tasks.length * 3}</p></div>` : ''}
-    `;
-  },
-
-  renderTaskGroup(cat, title, tasks) {
-    const list = tasks.filter(t => t.cat === cat);
-    if (!list.length) return '';
-    return `<div class="task-group">
-      <h3 class="task-group-title">${title}</h3>
-      ${list.map(t => {
-        const done = (this.state.checkedIn || []).includes(t.uid);
-        const steps = (t.steps || '').split(',').filter(Boolean);
-        const modLabel = t.module ? ` · ${this.catLabel(t.module)}` : '';
-        return `<div class="task-card ${done ? 'done' : ''}">
-          <div class="task-card-main">
-            <div class="task-card-head">
-              <span class="task-cat ${cat}">${this.catLabel(cat)}${modLabel}</span>
-              <span class="task-name">${t.name}</span>
-              ${t.parent ? '<span class="badge badge-warning">亲子</span>' : ''}
-            </div>
-            <div class="task-meta">约 ${t.duration} 分钟</div>
-            ${steps.length ? `<ol class="task-steps">${steps.map(s => `<li>${s}</li>`).join('')}</ol>` : ''}
-          </div>
-          <div class="task-card-actions">
-            <button class="btn btn-link" onclick="App.editTask('${t.uid}')">编辑</button>
-            <button class="btn ${done ? 'btn-outline' : 'btn-primary'} btn-sm" onclick="App.checkinTask('${t.uid}')">${done ? '已完成' : '打卡'}</button>
-          </div>
-        </div>`;
-      }).join('')}
-    </div>`;
   },
 
   checkinTask(uid) {
@@ -416,7 +398,7 @@ const App = {
     return `
       <div class="page-header">
         <h1 class="page-title">管理任务</h1>
-        <button class="btn btn-outline btn-sm" onclick="App.navigate('tasks')">返回</button>
+        <button class="btn btn-outline btn-sm" onclick="App.navigate('dashboard')">返回</button>
       </div>
       <div class="card mb-3">
         <h3>添加自定义任务</h3>
@@ -463,7 +445,7 @@ const App = {
     });
     Storage.save(this.state);
     this.toast('已添加', 'success');
-    this.navigate('tasks');
+    this.navigate('dashboard');
   },
 
   addTemplateTask(cat, id) {
@@ -474,19 +456,27 @@ const App = {
     this.state.dailyTasks.push({ ...it, uid: it.id + '-' + Date.now(), cat: taskCat });
     Storage.save(this.state);
     this.toast('已添加', 'success');
-    this.navigate('tasks');
+    this.navigate('dashboard');
   },
 
-  // ========== 知识（学习 + 录入 合并） ==========
+  // ========== 知识学习（按星级展示 + 筛选） ==========
   pageKnowledge() {
     const age = this.state.kidAge;
     const modules = window.APP_DATA.KIDS_MODULES;
     const selMod = this._libMod || modules[0].id;
-    const allCards = [...window.APP_DATA.KIDS_CARDS, ...(this.state.customCards || [])];
+    const allCards = this.allCards();
     const cards = allCards.filter(c => c.module === selMod && c.age <= age);
     const units = window.APP_DATA.MODULE_UNITS[selMod] || [];
     const selUnit = this._libUnit || 'all';
-    const filtered = selUnit === 'all' ? cards : cards.filter(c => c.unit === selUnit);
+    const selStar = this._libStar != null ? this._libStar : -1; // -1=全部
+
+    let filtered = cards;
+    if (selUnit !== 'all') filtered = filtered.filter(c => c.unit === selUnit);
+    if (selStar >= 0) filtered = filtered.filter(c => (this.state.knowledgeMastery[c.id] || 0) === selStar);
+
+    // 按星级降序排序
+    filtered = [...filtered].sort((a, b) => (this.state.knowledgeMastery[b.id] || 0) - (this.state.knowledgeMastery[a.id] || 0));
+
     return `
       <div class="page-header">
         <h1 class="page-title">知识</h1>
@@ -495,177 +485,42 @@ const App = {
         </select>
       </div>
 
-      <!-- 模块切换 -->
       <div class="mod-tabs mb-2">
-        ${modules.map(m => `<button class="mod-tab ${m.id===selMod?'active':''}" onclick="App._libMod='${m.id}';App._libUnit='all';App.navigate('knowledge')">${m.icon} ${m.name}</button>`).join('')}
+        ${modules.map(m => `<button class="mod-tab ${m.id===selMod?'active':''}" onclick="App._libMod='${m.id}';App._libUnit='all';App._libStar=-1;App.navigate('knowledge')">${m.icon} ${m.name}</button>`).join('')}
       </div>
 
-      <!-- 子分类切换 -->
-      <div class="unit-tabs mb-3">
+      <div class="unit-tabs mb-2">
         <button class="unit-tab ${selUnit==='all'?'active':''}" onclick="App._libUnit='all';App.navigate('knowledge')">全部</button>
         ${units.map(u => `<button class="unit-tab ${selUnit===u.id?'active':''}" onclick="App._libUnit='${u.id}';App.navigate('knowledge')">${u.name}</button>`).join('')}
       </div>
 
-      <!-- 快速录入 -->
-      <div class="card mb-3">
-        <div class="flex-between mb-2">
-          <h3>快速录入</h3>
-          <span class="text-muted">录入后立即出现在列表</span>
-        </div>
-        <div class="form-group">
-          <label>标题</label>
-          <div class="input-with-action">
-            <input class="form-control" id="quick-title" placeholder="输入成语名 / 诗名 / 自定义标题" oninput="App.onTitleInput()" />
-            <button class="btn btn-outline btn-sm" onclick="App.autoExpand()" id="autoBtn" disabled>✨ 自动扩展</button>
-          </div>
-          <div class="auto-hint" id="autoHint"></div>
-        </div>
-        <div class="form-group">
-          <label>内容</label>
-          <textarea class="form-control" id="quick-content" rows="3" placeholder="支持换行；自动扩展会填充此处"></textarea>
-        </div>
-        <div class="form-row">
-          <div class="form-group">
-            <label>子分类</label>
-            <select class="form-control" id="quick-unit">
-              ${units.map(u => `<option value="${u.id}">${u.name}</option>`).join('')}
-            </select>
-          </div>
-          <div class="form-group">
-            <label>年龄</label>
-            <select class="form-control" id="quick-age">
-              ${window.APP_DATA.KIDS_AGE_GROUPS.map(a => `<option value="${a}" ${a===age?'selected':''}>${a} 岁</option>`).join('')}
-            </select>
-          </div>
-        </div>
-        <button class="btn btn-primary btn-block" onclick="App.saveQuickCard('${selMod}')">保存到${this.moduleName(selMod)}</button>
+      <div class="star-filter mb-3" id="starFilter">
+        <span class="filter-label">星级：</span>
+        <button class="star-btn ${selStar===-1?'active':''}" data-star="-1" onclick="App.setStarFilter(-1)">全部</button>
+        <button class="star-btn ${selStar===0?'active':''}" data-star="0" onclick="App.setStarFilter(0)">☆☆☆</button>
+        <button class="star-btn ${selStar===1?'active':''}" data-star="1" onclick="App.setStarFilter(1)">★☆☆</button>
+        <button class="star-btn ${selStar===2?'active':''}" data-star="2" onclick="App.setStarFilter(2)">★★☆</button>
+        <button class="star-btn ${selStar===3?'active':''}" data-star="3" onclick="App.setStarFilter(3)">★★★</button>
       </div>
 
-      <!-- 卡片列表 -->
-      <h3>${this.moduleName(selMod)} · ${selUnit === 'all' ? '全部' : (units.find(u => u.id === selUnit) || {}).name || ''}</h3>
-      <div class="lib-grid">
-        ${filtered.length ? filtered.map(c => this.cardHTML(c)).join('') : '<div class="empty-state"><div class="icon">📭</div>暂无内容，可在上方录入</div>'}
+      <h3>${this.moduleName(selMod)} · ${selUnit === 'all' ? '全部' : (units.find(u => u.id === selUnit) || {}).name || ''} <span class="text-muted" style="font-size:.85rem;font-weight:normal">(${filtered.length})</span></h3>
+      <div class="lib-grid" id="libGrid">
+        ${filtered.length ? filtered.map(c => this.cardHTML(c)).join('') : '<div class="empty-state"><div class="icon">📭</div>暂无内容，可去「录入」添加</div>'}
       </div>
-
-      <!-- 已录入的自定义卡片 -->
-      ${(this.state.customCards || []).filter(c => c.module === selMod).length ? `
-        <h3 class="mt-3">我录入的卡片</h3>
-        <div class="card">
-          ${(this.state.customCards || []).filter(c => c.module === selMod).map(c => `
-            <div class="lib-row">
-              <span class="task-cat knowledge">${this.moduleIcon(c.module)}</span>
-              <div class="lib-row-main">
-                <div class="lib-row-title">${c.title}</div>
-                <div class="text-muted" style="font-size:.8rem">${(c.content || '').slice(0, 50)}${(c.content || '').length > 50 ? '...' : ''}</div>
-              </div>
-              <button class="btn btn-link" onclick="App.deleteCustomCard('${c.id}')">删除</button>
-            </div>`).join('')}
-        </div>` : ''}
     `;
+  },
+
+  setStarFilter(star) {
+    this._libStar = star;
+    this.render();
+  },
+
+  applyStarFilter() {
+    // 可扩展：DOM 级筛选（当前已用 render 重新渲染）
   },
 
   moduleName(id) { return (window.APP_DATA.KIDS_MODULES.find(m => m.id === id) || {}).name || ''; },
   moduleIcon(id) { return (window.APP_DATA.KIDS_MODULES.find(m => m.id === id) || {}).icon || '?'; },
-
-  onTitleInput() {
-    const title = document.getElementById('quick-title').value.trim();
-    const btn = document.getElementById('autoBtn');
-    const hint = document.getElementById('autoHint');
-    if (!title) { btn.disabled = true; hint.textContent = ''; return; }
-    // 检测是否在词典中
-    const inIdiom = window.APP_DATA.IDIOM_DICT[title];
-    const inPoem = window.APP_DATA.POEM_DICT[title];
-    if (inIdiom) {
-      btn.disabled = false;
-      hint.textContent = '✓ 命中成语词典，点击自动扩展可填充释义';
-      hint.style.color = '#0d9488';
-    } else if (inPoem) {
-      btn.disabled = false;
-      hint.textContent = '✓ 命中古诗词典，点击自动扩展可填充全文 + 作者';
-      hint.style.color = '#0d9488';
-    } else {
-      btn.disabled = false;
-      hint.textContent = '未命中词典，仍可尝试自动扩展（AI 通用模板）';
-      hint.style.color = '#6b7280';
-    }
-  },
-
-  autoExpand() {
-    const titleInput = document.getElementById('quick-title');
-    const title = titleInput.value.trim();
-    if (!title) return this.toast('请先输入标题', 'error');
-    const contentEl = document.getElementById('quick-content');
-    const unitSel = document.getElementById('quick-unit');
-
-    // 1. 成语词典
-    if (window.APP_DATA.IDIOM_DICT[title]) {
-      contentEl.value = window.APP_DATA.IDIOM_DICT[title];
-      // 自动选「成语」子分类
-      const idiomOpt = [...unitSel.options].find(o => o.text.includes('成语'));
-      if (idiomOpt) unitSel.value = idiomOpt.value;
-      this.toast('✓ 已填充成语释义', 'success');
-      return;
-    }
-    // 2. 古诗词典
-    if (window.APP_DATA.POEM_DICT[title]) {
-      const p = window.APP_DATA.POEM_DICT[title];
-      contentEl.value = `【${p.dynasty}】${p.author}\n${p.content}\n\n点评：${p.hint}`;
-      const poemOpt = [...unitSel.options].find(o => o.text.includes('古诗'));
-      if (poemOpt) unitSel.value = poemOpt.value;
-      this.toast('✓ 已填充古诗全文', 'success');
-      return;
-    }
-    // 3. 通用模板：根据标题长度和模块猜测
-    const mod = this._libMod;
-    const len = title.length;
-    let guess = '';
-    if (mod === 'literacy') {
-      if (len === 1) {
-        guess = `汉字「${title}」\n字形：${title}字的结构需要孩子观察。\n字义：${title}的意思。\n组词：${title} + 常用词。\n造句：用${title}说一句话。`;
-      } else if (len <= 4 && title.match(/^[\u4e00-\u9fa5]+$/)) {
-        guess = `「${title}」\n释义：${title}是一个常用词/成语，请家长补充具体含义。\n例句：用「${title}」造句示范。`;
-      } else {
-        guess = `知识点：${title}\n请家长补充学习内容。`;
-      }
-    } else if (mod === 'arithmetic') {
-      guess = `算数知识点：${title}\n示例：请家长补充 2-3 个例题。\n练习：可设计 3 道配套练习。`;
-    } else {
-      guess = `${title}\n请家长补充学习内容。`;
-    }
-    contentEl.value = guess;
-    this.toast('已按模板生成，请家长修改后保存', 'success');
-  },
-
-  saveQuickCard(mod) {
-    const title = document.getElementById('quick-title').value.trim();
-    const content = document.getElementById('quick-content').value.trim();
-    const unit = document.getElementById('quick-unit').value;
-    const age = parseInt(document.getElementById('quick-age').value);
-    if (!title || !content) return this.toast('标题和内容不能为空', 'error');
-    const card = {
-      id: 'cc-' + Date.now(),
-      module: mod, unit, title, content, age,
-      type: 'card', custom: true
-    };
-    this.state.customCards = this.state.customCards || [];
-    this.state.customCards.unshift(card);
-    Storage.save(this.state);
-    // 清空表单
-    document.getElementById('quick-title').value = '';
-    document.getElementById('quick-content').value = '';
-    document.getElementById('autoHint').textContent = '';
-    document.getElementById('autoBtn').disabled = true;
-    this.toast('卡片已保存 ✓', 'success');
-    this.render();
-  },
-
-  deleteCustomCard(id) {
-    if (!confirm('删除此卡片？')) return;
-    this.state.customCards = (this.state.customCards || []).filter(c => c.id !== id);
-    Storage.save(this.state);
-    this.toast('已删除');
-    this.render();
-  },
 
   setKidAge(age) {
     this.state.kidAge = parseInt(age);
@@ -680,8 +535,7 @@ const App = {
   },
 
   pageCard() {
-    const allCards = [...window.APP_DATA.KIDS_CARDS, ...(this.state.customCards || [])];
-    const card = allCards.find(c => c.id === this._cardId);
+    const card = this.allCards().find(c => c.id === this._cardId);
     if (!card) return '<div class="empty-state">卡片不存在</div>';
     const m = window.APP_DATA.KIDS_MODULES.find(x => x.id === card.module);
     const mastery = this.state.knowledgeMastery[card.id] || 0;
@@ -706,8 +560,7 @@ const App = {
   },
 
   speakCard(cardId) {
-    const allCards = [...window.APP_DATA.KIDS_CARDS, ...(this.state.customCards || [])];
-    const card = allCards.find(c => c.id === cardId);
+    const card = this.allCards().find(c => c.id === cardId);
     if (!card) return;
     if ('speechSynthesis' in window) {
       const u = new SpeechSynthesisUtterance(card.content);
@@ -738,16 +591,283 @@ const App = {
     this.render();
   },
 
-  // ========== 知识图谱（可视化） ==========
+  // ========== 知识录入（独立页 + 增强自动扩展） ==========
+  pageEntry() {
+    const modules = window.APP_DATA.KIDS_MODULES;
+    const selMod = this._entryMod || modules[0].id;
+    const units = window.APP_DATA.MODULE_UNITS[selMod] || [];
+    const customCount = (this.state.customCards || []).length;
+    return `
+      <div class="page-header">
+        <h1 class="page-title">知识录入</h1>
+        <p class="page-subtitle">输入标题，自动扩展内容、分类、分级</p>
+      </div>
+
+      <div class="card mb-3">
+        <h3>快速录入</h3>
+        <div class="form-group">
+          <label>所属模块</label>
+          <div class="mod-tabs">
+            ${modules.map(m => `<button class="mod-tab ${m.id===selMod?'active':''}" onclick="App._entryMod='${m.id}';App.render()">${m.icon} ${m.name}</button>`).join('')}
+          </div>
+        </div>
+        <div class="form-group">
+          <label>标题 <span class="text-muted" style="font-size:.8rem">（输入成语名/诗名/汉字/算数题，点自动扩展）</span></label>
+          <div class="input-with-action">
+            <input class="form-control" id="entry-title" placeholder="例如：守株待兔 / 静夜思 / 人 / 3+2" oninput="App.onEntryTitleInput()" />
+            <button class="btn btn-primary btn-sm" onclick="App.autoExpand()" id="autoBtn">✨ 自动扩展</button>
+          </div>
+          <div class="auto-hint" id="autoHint"></div>
+        </div>
+        <div class="form-group">
+          <label>内容</label>
+          <textarea class="form-control" id="entry-content" rows="4" placeholder="支持换行；自动扩展会填充此处"></textarea>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>子分类 <span class="text-muted" style="font-size:.75rem">（自动扩展会自动选择）</span></label>
+            <select class="form-control" id="entry-unit">
+              ${units.map(u => `<option value="${u.id}">${u.name}</option>`).join('')}
+            </select>
+          </div>
+          <div class="form-group">
+            <label>适合年龄 <span class="text-muted" style="font-size:.75rem">（自动扩展会自动分级）</span></label>
+            <select class="form-control" id="entry-age">
+              ${window.APP_DATA.KIDS_AGE_GROUPS.map(a => `<option value="${a}" ${a===4?'selected':''}>${a} 岁</option>`).join('')}
+            </select>
+          </div>
+        </div>
+        <button class="btn btn-primary btn-block btn-lg" onclick="App.saveEntryCard('${selMod}')">保存卡片</button>
+      </div>
+
+      <div class="card">
+        <h3>已录入卡片 (${customCount})</h3>
+        ${customCount ? (this.state.customCards || []).map(c => {
+          const m = window.APP_DATA.KIDS_MODULES.find(x => x.id === c.module);
+          const mastery = this.state.knowledgeMastery[c.id] || 0;
+          return `<div class="lib-row">
+            <span class="task-cat knowledge">${m ? m.icon : '?'}</span>
+            <div class="lib-row-main">
+              <div class="lib-row-title">${c.title} <span class="lib-row-mastery">${'★'.repeat(mastery)}${'☆'.repeat(3-mastery)}</span></div>
+              <div class="text-muted" style="font-size:.8rem">${(c.content || '').slice(0, 50)}${(c.content || '').length > 50 ? '...' : ''}</div>
+            </div>
+            <div class="flex gap-1">
+              <button class="btn btn-link" onclick="App.openCard('${c.id}')">查看</button>
+              <button class="btn btn-link" style="color:var(--c-danger)" onclick="App.deleteCustomCard('${c.id}')">删除</button>
+            </div>
+          </div>`;
+        }).join('') : '<div class="text-muted">暂无录入内容</div>'}
+      </div>
+    `;
+  },
+
+  onEntryTitleInput() {
+    const title = document.getElementById('entry-title').value.trim();
+    const hint = document.getElementById('autoHint');
+    if (!title) { hint.textContent = ''; return; }
+    const inIdiom = window.APP_DATA.IDIOM_DICT[title];
+    const inPoem = window.APP_DATA.POEM_DICT[title];
+    if (inIdiom) {
+      hint.textContent = '✓ 命中本地成语词典';
+      hint.style.color = '#0d9488';
+    } else if (inPoem) {
+      hint.textContent = '✓ 命中本地古诗词典';
+      hint.style.color = '#0d9488';
+    } else {
+      hint.textContent = '本地未命中，将尝试网络字典查询';
+      hint.style.color = '#6b7280';
+    }
+  },
+
+  // 自动扩展：本地词典 → 网络字典 → 智能模板；同时自动分类+分级
+  async autoExpand() {
+    const titleInput = document.getElementById('entry-title');
+    const title = titleInput.value.trim();
+    if (!title) return this.toast('请先输入标题', 'error');
+    const contentEl = document.getElementById('entry-content');
+    const unitSel = document.getElementById('entry-unit');
+    const ageSel = document.getElementById('entry-age');
+    const hint = document.getElementById('autoHint');
+
+    // 1. 本地成语词典
+    if (window.APP_DATA.IDIOM_DICT[title]) {
+      contentEl.value = window.APP_DATA.IDIOM_DICT[title];
+      this.selectUnit(unitSel, '成语');
+      ageSel.value = '5';
+      this.toast('✓ 本地成语释义已填充', 'success');
+      return;
+    }
+    // 2. 本地古诗词典
+    if (window.APP_DATA.POEM_DICT[title]) {
+      const p = window.APP_DATA.POEM_DICT[title];
+      contentEl.value = `【${p.dynasty}】${p.author}\n${p.content}\n\n点评：${p.hint}`;
+      this.selectUnit(unitSel, '古诗');
+      ageSel.value = '5';
+      this.toast('✓ 本地古诗全文已填充', 'success');
+      return;
+    }
+
+    // 3. 网络字典查询
+    hint.textContent = '正在查询网络字典...';
+    hint.style.color = '#6b7280';
+    try {
+      const net = await this.fetchNetDict(title);
+      if (net) {
+        contentEl.value = net.content;
+        if (net.unit) this.selectUnit(unitSel, net.unit);
+        if (net.age) ageSel.value = String(net.age);
+        this.toast(`✓ 网络字典已填充（${net.source}）`, 'success');
+        return;
+      }
+    } catch (e) {
+      console.warn('网络查询失败', e);
+    }
+
+    // 4. 智能模板 fallback
+    const guess = this.guessContent(title);
+    contentEl.value = guess.content;
+    if (guess.unit) this.selectUnit(unitSel, guess.unit);
+    if (guess.age) ageSel.value = String(guess.age);
+    this.toast('已按模板生成，请家长修改后保存', 'success');
+  },
+
+  selectUnit(sel, name) {
+    const opt = [...sel.options].find(o => o.text.includes(name));
+    if (opt) sel.value = opt.value;
+  },
+
+  // 网络字典查询：依次尝试多个开放 API
+  async fetchNetDict(title) {
+    // 3.1 成语 API
+    try {
+      const res = await fetch(`https://api.vvhan.com/api/chengyu?word=${encodeURIComponent(title)}`, { signal: AbortSignal.timeout(5000) });
+      const data = await res.json();
+      if (data && data.success && data.ciyu) {
+        const parts = [];
+        parts.push(data.ciyu);
+        if (data.pinyin) parts.push(`拼音：${data.pinyin}`);
+        if (data.jianjie) parts.push(`释义：${data.jianjie}`);
+        if (data.chuchu) parts.push(`出处：${data.chuchu}`);
+        if (data.liju) parts.push(`例句：${data.liju}`);
+        return { content: parts.join('\n'), unit: '成语', age: 6, source: '网络成语' };
+      }
+    } catch (e) { console.warn('成语API失败', e); }
+
+    // 3.2 古诗 API
+    try {
+      const res = await fetch(`https://api.vvhan.com/api/shici?word=${encodeURIComponent(title)}`, { signal: AbortSignal.timeout(5000) });
+      const data = await res.json();
+      if (data && data.success) {
+        const poem = data.data || data;
+        const parts = [];
+        if (poem.author) parts.push(`【${poem.dynasty || ''}】${poem.author}`);
+        if (poem.content) parts.push(poem.content);
+        if (poem.translate) parts.push(`译文：${poem.translate}`);
+        if (poem.appreciation) parts.push(`赏析：${poem.appreciation}`);
+        if (parts.length) return { content: parts.join('\n'), unit: '古诗', age: 6, source: '网络古诗' };
+      }
+    } catch (e) { console.warn('古诗API失败', e); }
+
+    // 3.3 汉字查询 API
+    if (title.length === 1 && /[\u4e00-\u9fa5]/.test(title)) {
+      try {
+        const res = await fetch(`https://api.vvhan.com/api/hanzibihua?text=${encodeURIComponent(title)}`, { signal: AbortSignal.timeout(5000) });
+        const data = await res.json();
+        if (data && data.success) {
+          const parts = [`汉字「${title}」`];
+          if (data.pinyin) parts.push(`拼音：${data.pinyin}`);
+          if (data.bihua) parts.push(`笔画：${data.bihua}`);
+          if (data.bushou) parts.push(`部首：${data.bushou}`);
+          if (data.jiegou) parts.push(`结构：${data.jiegou}`);
+          parts.push(`组词：请家长补充常用词`);
+          parts.push(`造句：用「${title}」说一句话`);
+          return { content: parts.join('\n'), unit: '汉字', age: 4, source: '网络汉字' };
+        }
+      } catch (e) { console.warn('汉字API失败', e); }
+    }
+
+    return null;
+  },
+
+  // 智能模板：根据标题特征猜测内容、分类、年龄
+  guessContent(title) {
+    const len = title.length;
+    // 单字汉字
+    if (len === 1 && /[\u4e00-\u9fa5]/.test(title)) {
+      return {
+        content: `汉字「${title}」\n字形：请观察「${title}」的结构。\n字义：请家长补充含义。\n组词：${title} + 常用词。\n造句：用「${title}」说一句话。`,
+        unit: '汉字', age: 4
+      };
+    }
+    // 算数题（含数字和加减号）
+    if (/[0-9]/.test(title) && /[+\-]/.test(title)) {
+      return {
+        content: `算数：${title}\n请家长用实物演示计算过程。\n例如：用苹果、积木等让孩子点数。\n练习：再出 2 道类似题目。`,
+        unit: '加减法', age: 5
+      };
+    }
+    // 纯数字
+    if (/^[0-9]+$/.test(title)) {
+      return {
+        content: `认识数字 ${title}\n${title} 像什么？请家长引导联想。\n点数：数出 ${title} 个物品。\n找一找：生活中哪里有 ${title}？`,
+        unit: '数字认知', age: 3
+      };
+    }
+    // 2-4 字中文（可能是词语或成语）
+    if (len >= 2 && len <= 4 && /^[\u4e00-\u9fa5]+$/.test(title)) {
+      return {
+        content: `「${title}」\n释义：请家长查字典补充。\n例句：用「${title}」造句示范。\n延伸：找一找生活中的${title}。`,
+        unit: len === 4 ? '成语' : '汉字', age: len === 4 ? 6 : 5
+      };
+    }
+    // 默认
+    return {
+      content: `${title}\n请家长补充学习内容。`,
+      unit: null, age: 4
+    };
+  },
+
+  saveEntryCard(mod) {
+    const title = document.getElementById('entry-title').value.trim();
+    const content = document.getElementById('entry-content').value.trim();
+    const unit = document.getElementById('entry-unit').value;
+    const age = parseInt(document.getElementById('entry-age').value);
+    if (!title || !content) return this.toast('标题和内容不能为空', 'error');
+    const card = {
+      id: 'cc-' + Date.now(),
+      module: mod, unit, title, content, age,
+      type: 'card', custom: true
+    };
+    this.state.customCards = this.state.customCards || [];
+    this.state.customCards.unshift(card);
+    Storage.save(this.state);
+    // 清空表单
+    document.getElementById('entry-title').value = '';
+    document.getElementById('entry-content').value = '';
+    document.getElementById('autoHint').textContent = '';
+    this.toast('卡片已保存 ✓', 'success');
+    this.render();
+  },
+
+  deleteCustomCard(id) {
+    if (!confirm('删除此卡片？')) return;
+    this.state.customCards = (this.state.customCards || []).filter(c => c.id !== id);
+    Storage.save(this.state);
+    this.toast('已删除');
+    this.render();
+  },
+
+  // ========== 知识图谱（合并知识树） ==========
   pageGraph() {
     const litCount = this.countNodesByModule('literacy');
     const mathCount = this.countNodesByModule('arithmetic');
-    const totalCards = [...window.APP_DATA.KIDS_CARDS, ...(this.state.customCards || [])];
+    const totalCards = this.allCards();
     const mastered = totalCards.filter(c => (this.state.knowledgeMastery[c.id] || 0) >= 3).length;
     const learning = totalCards.filter(c => {
       const m = this.state.knowledgeMastery[c.id] || 0;
       return m > 0 && m < 3;
     }).length;
+    const treeNodes = this.state.knowledgeTree || [];
     return `
       <div class="page-header">
         <h1 class="page-title">知识图谱</h1>
@@ -757,9 +877,9 @@ const App = {
         <div class="card stat-card"><div class="stat-num">${learning}</div><div class="stat-label">学习中</div></div>
         <div class="card stat-card"><div class="stat-num">${totalCards.length - mastered - learning}</div><div class="stat-label">未开始</div></div>
       </div>
-      <div class="card">
+      <div class="card mb-3">
         <h3>识字 · 算数 知识网络</h3>
-        <p class="text-muted">节点大小=掌握度，颜色=所属模块。点击节点查看详情</p>
+        <p class="text-muted">节点大小=掌握度，颜色=状态。点击节点查看详情</p>
         <div class="graph-wrap">
           <svg id="graphSvg" class="graph-svg" viewBox="0 0 800 500"></svg>
         </div>
@@ -770,33 +890,36 @@ const App = {
           <span class="legend-item"><span class="legend-dot" style="background:#f59e0b"></span>学习中</span>
           <span class="legend-item"><span class="legend-dot" style="background:#10b981"></span>已掌握</span>
         </div>
+      </div>
+      <div class="card">
+        <h3>知识树 · 已点亮 ${treeNodes.length} 个</h3>
+        <div class="tree-visual">
+          ${treeNodes.length ? treeNodes.map(id => {
+            const c = this.allCards().find(x => x.id === id);
+            return c ? `<span class="tree-leaf" title="${c.title}">${c.title.slice(0,4)}</span>` : '';
+          }).join('') : '<div class="empty-state"><div class="icon">🌱</div>完成知识卡片学习后点亮</div>'}
+        </div>
       </div>`;
   },
 
   drawGraph() {
-    // 构建图谱数据：模块中心 → 子分类中心 → 卡片节点
     const svg = document.getElementById('graphSvg');
     if (!svg) return;
     const modules = window.APP_DATA.KIDS_MODULES;
     const moduleUnits = window.APP_DATA.MODULE_UNITS;
-    const allCards = [...window.APP_DATA.KIDS_CARDS, ...(this.state.customCards || [])];
+    const allCards = this.allCards();
     const W = 800, H = 500;
-
-    // 模块中心位置
     const modPos = {
       literacy: { x: W * 0.3, y: H * 0.5 },
       arithmetic: { x: W * 0.7, y: H * 0.5 }
     };
-
     let nodes = [];
     let edges = [];
 
-    // 添加模块中心节点
     modules.forEach(m => {
       nodes.push({ id: 'mod-' + m.id, type: 'module', label: m.name, x: modPos[m.id].x, y: modPos[m.id].y, r: 26, color: m.color });
     });
 
-    // 每个模块的子分类节点，绕模块中心圆周分布
     modules.forEach(m => {
       const units = moduleUnits[m.id] || [];
       const cx = modPos[m.id].x, cy = modPos[m.id].y;
@@ -808,7 +931,6 @@ const App = {
         const uy = cy + unitR * Math.sin(ang);
         nodes.push({ id: 'unit-' + m.id + '-' + u.id, type: 'unit', label: u.name, x: ux, y: uy, r: 16, color: m.color, moduleId: m.id, unitId: u.id });
         edges.push({ from: 'mod-' + m.id, to: 'unit-' + m.id + '-' + u.id, color: m.color });
-        // 该子分类下的卡片
         const cards = allCards.filter(c => c.module === m.id && c.unit === u.id);
         const cardR = 70;
         const cn = cards.length;
@@ -817,7 +939,7 @@ const App = {
           const cardx = ux + cardR * Math.cos(cang);
           const cardy = uy + cardR * Math.sin(cang);
           const mastery = this.state.knowledgeMastery[c.id] || 0;
-          let nodeColor = '#9ca3af';
+          let nodeColor;
           if (mastery >= 3) nodeColor = '#10b981';
           else if (mastery > 0) nodeColor = '#f59e0b';
           else nodeColor = m.color;
@@ -827,27 +949,22 @@ const App = {
       });
     });
 
-    // 渲染
     let html = '';
-    // 边
     edges.forEach(e => {
       const a = nodes.find(n => n.id === e.from);
       const b = nodes.find(n => n.id === e.to);
       if (!a || !b) return;
       html += `<line x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}" stroke="${e.color}" stroke-width="${e.color === '#d1d5db' ? 1 : 2}" stroke-opacity="${e.color === '#d1d5db' ? 0.5 : 0.7}"/>`;
     });
-    // 节点
     nodes.forEach(n => {
       const fontSize = n.type === 'module' ? 14 : (n.type === 'unit' ? 12 : 9);
       const fontWeight = n.type === 'module' ? 'bold' : 'normal';
       const labelOffset = n.r + (n.type === 'card' ? 8 : 12);
       const clickable = n.type === 'card';
       html += `<circle cx="${n.x}" cy="${n.y}" r="${n.r}" fill="${n.color}" fill-opacity="${n.type === 'card' ? 0.85 : 0.15}" stroke="${n.color}" stroke-width="2" ${clickable ? `onclick="App.openCard('${n.cardId}')" style="cursor:pointer"` : ''}/>`;
-      // 节点标签
       if (n.type === 'module' || n.type === 'unit') {
         html += `<text x="${n.x}" y="${n.y}" text-anchor="middle" dominant-baseline="middle" font-size="${fontSize}" font-weight="${fontWeight}" fill="${n.color}">${n.label}</text>`;
       } else {
-        // 卡片节点：标签放在节点下方
         const text = n.label.length > 6 ? n.label.slice(0, 5) + '…' : n.label;
         html += `<text x="${n.x}" y="${n.y + labelOffset}" text-anchor="middle" font-size="${fontSize}" fill="#6b7280">${text}</text>`;
       }
@@ -855,50 +972,7 @@ const App = {
     svg.innerHTML = html;
   },
 
-  // ========== 知识树 ==========
-  pageTree() {
-    const nodes = this.state.knowledgeTree || [];
-    const allCards = [...window.APP_DATA.KIDS_CARDS, ...(this.state.customCards || [])];
-    return `
-      <h1 class="page-title">知识树</h1>
-      <p class="page-subtitle">已点亮 ${nodes.length} 个知识点</p>
-      <div class="card mb-3 text-center">
-        <div class="tree-visual">
-          ${nodes.length ? nodes.map(id => {
-            const c = allCards.find(x => x.id === id);
-            return c ? `<span class="tree-leaf" title="${c.title}">${c.title.slice(0,4)}</span>` : '';
-          }).join('') : '<div class="empty-state"><div class="icon">🌱</div>完成知识卡片学习后点亮</div>'}
-        </div>
-      </div>
-      <div class="card">
-        <h3>星星兑换</h3>
-        <p class="text-muted">当前 ⭐ ${this.state.kidStars || 0}</p>
-        <div class="card-grid grid-2">
-          ${window.APP_DATA.GIFT_EXCHANGE.map(g => {
-            const can = (this.state.kidStars || 0) >= g.cost;
-            const redeemed = (this.state.redeemedGifts || []).includes(g.id);
-            return `<div class="gift-card">
-              <div class="gift-name">${g.name}</div>
-              <div class="gift-cost">⭐ ${g.cost}</div>
-              <button class="btn ${can && !redeemed ? 'btn-primary' : 'btn-outline'} btn-sm btn-block" ${can && !redeemed ? '' : 'disabled'} onclick="App.redeemGift('${g.id}')">${redeemed ? '已兑换' : (can ? '兑换' : '星星不足')}</button>
-            </div>`;
-          }).join('')}
-        </div>
-      </div>`;
-  },
-
-  redeemGift(id) {
-    const g = window.APP_DATA.GIFT_EXCHANGE.find(x => x.id === id);
-    if (!g || (this.state.kidStars || 0) < g.cost) return;
-    this.state.kidStars -= g.cost;
-    this.state.redeemedGifts = this.state.redeemedGifts || [];
-    this.state.redeemedGifts.push(id);
-    Storage.save(this.state);
-    this.toast(`兑换成功：${g.name}`, 'success');
-    this.render();
-  },
-
-  // ========== 成长报告 ==========
+  // ========== 成长报告（合并星星兑换） ==========
   pageReport() {
     const dims = window.APP_DATA.DIMENSIONS;
     const stats = this.state.dimensionStats || {};
@@ -920,10 +994,25 @@ const App = {
         <h3>周报</h3>
         ${this.renderWeekly()}
       </div>
-      <div class="card">
+      <div class="card mb-3">
         <h3>导出</h3>
         <p class="text-muted">导出孩子的成长数据</p>
         <button class="btn btn-primary" onclick="App.exportReport()">导出报告</button>
+      </div>
+      <div class="card">
+        <h3>星星兑换</h3>
+        <p class="text-muted">当前 ⭐ ${this.state.kidStars || 0}</p>
+        <div class="card-grid grid-2">
+          ${window.APP_DATA.GIFT_EXCHANGE.map(g => {
+            const can = (this.state.kidStars || 0) >= g.cost;
+            const redeemed = (this.state.redeemedGifts || []).includes(g.id);
+            return `<div class="gift-card">
+              <div class="gift-name">${g.name}</div>
+              <div class="gift-cost">⭐ ${g.cost}</div>
+              <button class="btn ${can && !redeemed ? 'btn-primary' : 'btn-outline'} btn-sm btn-block" ${can && !redeemed ? '' : 'disabled'} onclick="App.redeemGift('${g.id}')">${redeemed ? '已兑换' : (can ? '兑换' : '星星不足')}</button>
+            </div>`;
+          }).join('')}
+        </div>
       </div>
     `;
   },
@@ -978,6 +1067,17 @@ const App = {
     }
     day.completed = (day.completed || 0) + 1;
     day.duration = (day.duration || 0) + (duration || 0);
+  },
+
+  redeemGift(id) {
+    const g = window.APP_DATA.GIFT_EXCHANGE.find(x => x.id === id);
+    if (!g || (this.state.kidStars || 0) < g.cost) return;
+    this.state.kidStars -= g.cost;
+    this.state.redeemedGifts = this.state.redeemedGifts || [];
+    this.state.redeemedGifts.push(id);
+    Storage.save(this.state);
+    this.toast(`兑换成功：${g.name}`, 'success');
+    this.render();
   },
 
   exportReport() {
@@ -1072,7 +1172,6 @@ const App = {
     });
   },
 
-  // ========== 连续学习 ==========
   updateStreak() {
     const today = new Date().toDateString();
     if (this.state.lastStudyDate !== today) {
