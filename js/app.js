@@ -42,8 +42,7 @@ const App = {
       { id: 'knowledge', label: '知识' },
       { id: 'entry', label: '录入' },
       { id: 'graph', label: '图谱' },
-      { id: 'report', label: '报告' },
-      { id: 'settings', label: '设置' }
+      { id: 'report', label: '报告' }
     ];
     document.getElementById('navMenu').innerHTML = menus.map(m =>
       `<a class="${this.route === m.id ? 'active' : ''}" onclick="App.navigate('${m.id}')">${m.label}</a>`
@@ -69,8 +68,7 @@ const App = {
       card: () => this.pageCard(),
       entry: () => this.pageEntry(),
       graph: () => this.pageGraph(),
-      report: () => this.pageReport(),
-      settings: () => this.pageSettings()
+      report: () => this.pageReport()
     };
     c.innerHTML = (pages[this.route] || pages.dashboard)();
     if (this.route === 'graph') this.drawGraph();
@@ -81,7 +79,7 @@ const App = {
     const ua = document.getElementById('userArea');
     const ver = window.APP_DATA.APP_VERSION;
     if (this.state.user) {
-      ua.innerHTML = `<span class="ver-badge">v${ver}</span><span class="user-name" onclick="App.navigate('settings')">${this.state.user.childName || this.state.user.username}</span>`;
+      ua.innerHTML = `<span class="ver-badge">v${ver}</span><span class="user-name" onclick="App.navigate('report')">${this.state.user.childName || this.state.user.username}</span>`;
     } else {
       ua.innerHTML = `<span class="ver-badge">v${ver}</span>`;
     }
@@ -679,7 +677,7 @@ const App = {
     }
   },
 
-  // 自动扩展：本地词典 → 网络字典 → 智能模板；同时自动分类+分级
+  // 自动扩展：本地词典 → 网络字典（多源）→ 智能模板；同时自动分类+分级
   async autoExpand() {
     const titleInput = document.getElementById('entry-title');
     const title = titleInput.value.trim();
@@ -694,6 +692,8 @@ const App = {
       contentEl.value = window.APP_DATA.IDIOM_DICT[title];
       this.selectUnit(unitSel, '成语');
       ageSel.value = '5';
+      hint.textContent = '✓ 命中本地成语词典';
+      hint.style.color = '#0d9488';
       this.toast('✓ 本地成语释义已填充', 'success');
       return;
     }
@@ -703,32 +703,40 @@ const App = {
       contentEl.value = `【${p.dynasty}】${p.author}\n${p.content}\n\n点评：${p.hint}`;
       this.selectUnit(unitSel, '古诗');
       ageSel.value = '5';
+      hint.textContent = '✓ 命中本地古诗词典';
+      hint.style.color = '#0d9488';
       this.toast('✓ 本地古诗全文已填充', 'success');
       return;
     }
 
-    // 3. 网络字典查询
-    hint.textContent = '正在查询网络字典...';
+    // 3. 网络字典查询（多源，带超时）
+    hint.textContent = '正在查询网络字典，请稍候...';
     hint.style.color = '#6b7280';
+    let net = null;
     try {
-      const net = await this.fetchNetDict(title);
-      if (net) {
-        contentEl.value = net.content;
-        if (net.unit) this.selectUnit(unitSel, net.unit);
-        if (net.age) ageSel.value = String(net.age);
-        this.toast(`✓ 网络字典已填充（${net.source}）`, 'success');
-        return;
-      }
+      net = await this.fetchNetDict(title);
     } catch (e) {
-      console.warn('网络查询失败', e);
+      console.warn('网络查询异常', e);
     }
 
-    // 4. 智能模板 fallback
+    if (net) {
+      contentEl.value = net.content;
+      if (net.unit) this.selectUnit(unitSel, net.unit);
+      if (net.age) ageSel.value = String(net.age);
+      hint.textContent = `✓ 网络字典已填充（${net.source}）`;
+      hint.style.color = '#0d9488';
+      this.toast(`✓ 网络字典已填充（${net.source}）`, 'success');
+      return;
+    }
+
+    // 4. 智能模板 fallback（网络不可用时）
     const guess = this.guessContent(title);
     contentEl.value = guess.content;
     if (guess.unit) this.selectUnit(unitSel, guess.unit);
     if (guess.age) ageSel.value = String(guess.age);
-    this.toast('已按模板生成，请家长修改后保存', 'success');
+    hint.textContent = '网络字典暂不可用，已生成模板，请家长补充内容';
+    hint.style.color = '#d97706';
+    this.toast('网络暂不可用，已按模板生成，请补充后保存', '');
   },
 
   selectUnit(sel, name) {
@@ -736,54 +744,81 @@ const App = {
     if (opt) sel.value = opt.value;
   },
 
-  // 网络字典查询：依次尝试多个开放 API
+  // 网络字典查询：多源依次尝试，每个 4 秒超时
   async fetchNetDict(title) {
-    // 3.1 成语 API
-    try {
-      const res = await fetch(`https://api.vvhan.com/api/chengyu?word=${encodeURIComponent(title)}`, { signal: AbortSignal.timeout(5000) });
-      const data = await res.json();
-      if (data && data.success && data.ciyu) {
-        const parts = [];
-        parts.push(data.ciyu);
-        if (data.pinyin) parts.push(`拼音：${data.pinyin}`);
-        if (data.jianjie) parts.push(`释义：${data.jianjie}`);
-        if (data.chuchu) parts.push(`出处：${data.chuchu}`);
-        if (data.liju) parts.push(`例句：${data.liju}`);
-        return { content: parts.join('\n'), unit: '成语', age: 6, source: '网络成语' };
-      }
-    } catch (e) { console.warn('成语API失败', e); }
+    const isHanzi = title.length === 1 && /[\u4e00-\u9fa5]/.test(title);
+    const TIMEOUT = 4000;
 
-    // 3.2 古诗 API
-    try {
-      const res = await fetch(`https://api.vvhan.com/api/shici?word=${encodeURIComponent(title)}`, { signal: AbortSignal.timeout(5000) });
-      const data = await res.json();
-      if (data && data.success) {
-        const poem = data.data || data;
-        const parts = [];
-        if (poem.author) parts.push(`【${poem.dynasty || ''}】${poem.author}`);
-        if (poem.content) parts.push(poem.content);
-        if (poem.translate) parts.push(`译文：${poem.translate}`);
-        if (poem.appreciation) parts.push(`赏析：${poem.appreciation}`);
-        if (parts.length) return { content: parts.join('\n'), unit: '古诗', age: 6, source: '网络古诗' };
-      }
-    } catch (e) { console.warn('古诗API失败', e); }
-
-    // 3.3 汉字查询 API
-    if (title.length === 1 && /[\u4e00-\u9fa5]/.test(title)) {
+    // --- 成语源 ---
+    const idiomSources = [
+      (w) => `https://api.vvhan.com/api/chengyu?word=${encodeURIComponent(w)}`,
+      (w) => `https://api.oioweb.cn/api/common/chengyu?word=${encodeURIComponent(w)}`,
+      (w) => `https://api.qqly.net/api/chengyu?msg=${encodeURIComponent(w)}`
+    ];
+    for (const build of idiomSources) {
       try {
-        const res = await fetch(`https://api.vvhan.com/api/hanzibihua?text=${encodeURIComponent(title)}`, { signal: AbortSignal.timeout(5000) });
+        const res = await fetch(build(title), { signal: AbortSignal.timeout(TIMEOUT) });
+        if (!res.ok) continue;
         const data = await res.json();
-        if (data && data.success) {
-          const parts = [`汉字「${title}」`];
+        if (data && (data.success || data.code === 200 || data.ciyu)) {
+          const parts = [];
+          const ciyu = data.ciyu || data.title || data.word || title;
+          parts.push(ciyu);
           if (data.pinyin) parts.push(`拼音：${data.pinyin}`);
-          if (data.bihua) parts.push(`笔画：${data.bihua}`);
-          if (data.bushou) parts.push(`部首：${data.bushou}`);
-          if (data.jiegou) parts.push(`结构：${data.jiegou}`);
-          parts.push(`组词：请家长补充常用词`);
-          parts.push(`造句：用「${title}」说一句话`);
-          return { content: parts.join('\n'), unit: '汉字', age: 4, source: '网络汉字' };
+          if (data.jianjie || data.explanation) parts.push(`释义：${data.jianjie || data.explanation}`);
+          if (data.chuchu || data.source) parts.push(`出处：${data.chuchu || data.source}`);
+          if (data.liju || data.example) parts.push(`例句：${data.liju || data.example}`);
+          if (parts.length > 1) return { content: parts.join('\n'), unit: '成语', age: 6, source: '网络成语' };
         }
-      } catch (e) { console.warn('汉字API失败', e); }
+      } catch (e) { /* 继续下一个源 */ }
+    }
+
+    // --- 古诗源 ---
+    const poemSources = [
+      (w) => `https://api.vvhan.com/api/shici?word=${encodeURIComponent(w)}`,
+      (w) => `https://api.gumengya.com/Api/Poetry?format=json&keyword=${encodeURIComponent(w)}`
+    ];
+    for (const build of poemSources) {
+      try {
+        const res = await fetch(build(title), { signal: AbortSignal.timeout(TIMEOUT) });
+        if (!res.ok) continue;
+        const data = await res.json();
+        if (data && (data.success || data.code === 200 || (data.data && data.data.content))) {
+          const poem = data.data || data.result || data;
+          const parts = [];
+          const author = poem.author || data.author;
+          const dynasty = poem.dynasty || data.dynasty;
+          if (author) parts.push(`【${dynasty || ''}】${author}`);
+          if (poem.content || data.content) parts.push(poem.content || data.content);
+          if (poem.translate || data.translate) parts.push(`译文：${poem.translate || data.translate}`);
+          if (poem.appreciation || data.appreciation) parts.push(`赏析：${poem.appreciation || data.appreciation}`);
+          if (parts.length) return { content: parts.join('\n'), unit: '古诗', age: 6, source: '网络古诗' };
+        }
+      } catch (e) { /* 继续下一个源 */ }
+    }
+
+    // --- 汉字源（仅单字） ---
+    if (isHanzi) {
+      const hanziSources = [
+        (w) => `https://api.vvhan.com/api/hanzibihua?text=${encodeURIComponent(w)}`
+      ];
+      for (const build of hanziSources) {
+        try {
+          const res = await fetch(build(title), { signal: AbortSignal.timeout(TIMEOUT) });
+          if (!res.ok) continue;
+          const data = await res.json();
+          if (data && data.success) {
+            const parts = [`汉字「${title}」`];
+            if (data.pinyin) parts.push(`拼音：${data.pinyin}`);
+            if (data.bihua) parts.push(`笔画：${data.bihua}`);
+            if (data.bushou) parts.push(`部首：${data.bushou}`);
+            if (data.jiegou) parts.push(`结构：${data.jiegou}`);
+            parts.push(`组词：请家长补充常用词`);
+            parts.push(`造句：用「${title}」说一句话`);
+            return { content: parts.join('\n'), unit: '汉字', age: 4, source: '网络汉字' };
+          }
+        } catch (e) { /* 继续 */ }
+      }
     }
 
     return null;
@@ -972,12 +1007,13 @@ const App = {
     svg.innerHTML = html;
   },
 
-  // ========== 成长报告（合并星星兑换） ==========
+  // ========== 成长报告（合并版本信息/数据导出/退出登录） ==========
   pageReport() {
     const dims = window.APP_DATA.DIMENSIONS;
     const stats = this.state.dimensionStats || {};
     const values = dims.map(d => stats[d.key] || 0);
     const maxV = Math.max(...values, 60);
+    const u = this.state.user;
     return `
       <h1 class="page-title">成长报告</h1>
       <p class="page-subtitle">多维能力发展追踪</p>
@@ -995,11 +1031,6 @@ const App = {
         ${this.renderWeekly()}
       </div>
       <div class="card mb-3">
-        <h3>导出</h3>
-        <p class="text-muted">导出孩子的成长数据</p>
-        <button class="btn btn-primary" onclick="App.exportReport()">导出报告</button>
-      </div>
-      <div class="card">
         <h3>星星兑换</h3>
         <p class="text-muted">当前 ⭐ ${this.state.kidStars || 0}</p>
         <div class="card-grid grid-2">
@@ -1012,6 +1043,21 @@ const App = {
               <button class="btn ${can && !redeemed ? 'btn-primary' : 'btn-outline'} btn-sm btn-block" ${can && !redeemed ? '' : 'disabled'} onclick="App.redeemGift('${g.id}')">${redeemed ? '已兑换' : (can ? '兑换' : '星星不足')}</button>
             </div>`;
           }).join('')}
+        </div>
+      </div>
+      <div class="card mb-3">
+        <h3>版本与数据</h3>
+        <p class="text-muted">版本：v${window.APP_DATA.APP_VERSION}</p>
+        <div class="flex gap-2 mt-1">
+          <button class="btn btn-outline" onclick="App.exportReport()">导出成长报告</button>
+          <button class="btn btn-outline" onclick="App.exportData()">导出全部数据</button>
+        </div>
+      </div>
+      <div class="card mb-3">
+        <h3>账号</h3>
+        <div class="flex-between">
+          <span class="text-muted">${u.childName} · ${u.childAge} 岁</span>
+          <button class="btn btn-outline btn-sm" onclick="App.logout()">退出登录</button>
         </div>
       </div>
     `;
@@ -1100,49 +1146,7 @@ const App = {
     this.toast('已导出', 'success');
   },
 
-  // ========== 设置 ==========
-  pageSettings() {
-    const u = this.state.user;
-    return `
-      <h1 class="page-title">设置</h1>
-      <div class="card mb-3">
-        <h3>孩子信息</h3>
-        <div class="form-row">
-          <div class="form-group"><label>孩子昵称</label><input class="form-control" id="st-name" value="${u.childName || ''}" /></div>
-          <div class="form-group"><label>年龄</label>
-            <select class="form-control" id="st-age">
-              ${window.APP_DATA.KIDS_AGE_GROUPS.map(a => `<option value="${a}" ${a===this.state.kidAge?'selected':''}>${a} 岁</option>`).join('')}
-            </select>
-          </div>
-        </div>
-        <button class="btn btn-primary" onclick="App.saveProfile()">保存</button>
-      </div>
-      <div class="card mb-3">
-        <h3>关于</h3>
-        <p class="text-muted">版本：v${window.APP_DATA.APP_VERSION}</p>
-        <p class="text-muted">儿童学习陪伴 · 家长端 · 识字与算数专项</p>
-      </div>
-      <div class="card mb-3">
-        <h3>数据管理</h3>
-        <p class="text-muted">导出或清空全部数据</p>
-        <div class="flex gap-2">
-          <button class="btn btn-outline" onclick="App.exportData()">导出数据</button>
-          <button class="btn btn-danger" onclick="App.clearData()">清空数据</button>
-        </div>
-      </div>
-      <button class="btn btn-outline btn-block" onclick="App.logout()">退出登录</button>
-    `;
-  },
-
-  saveProfile() {
-    this.state.user.childName = document.getElementById('st-name').value.trim() || this.state.user.childName;
-    this.state.kidAge = parseInt(document.getElementById('st-age').value);
-    this.state.user.childAge = this.state.kidAge;
-    Storage.save(this.state);
-    this.toast('已保存', 'success');
-    this.render();
-  },
-
+  // ========== 数据管理 ==========
   exportData() {
     const blob = new Blob([JSON.stringify(this.state, null, 2)], { type: 'application/json' });
     const a = document.createElement('a');
