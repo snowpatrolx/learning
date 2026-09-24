@@ -1,7 +1,7 @@
 // ============================================================
-// 儿童学习陪伴（家长端）- 主应用逻辑 v1.02
-// 核心功能：识字 + 算数
-// 导航：首页(含今日任务) / 知识 / 知识录入 / 知识图谱(含知识树) / 成长报告(含星星兑换) / 设置
+// 儿童学习陪伴（家长端）- 主应用逻辑 v1.04
+// 核心功能：识字 + 算数 + 英语
+// 导航：首页(含今日任务) / 知识 / 知识录入 / 知识图谱(含知识树) / 成长报告(含星星兑换)
 // ============================================================
 
 const App = {
@@ -159,6 +159,7 @@ const App = {
     const today = new Date().toISOString().slice(0, 10);
     const litCount = this.countNodesByModule('literacy');
     const mathCount = this.countNodesByModule('arithmetic');
+    const enCount = this.countNodesByModule('english');
 
     // 今日任务组
     const taskGroups = [
@@ -227,7 +228,7 @@ const App = {
           <div class="nav-card-icon">📚</div>
           <div>
             <h4>知识学习</h4>
-            <p class="text-muted">识字 ${litCount} · 算数 ${mathCount}</p>
+            <p class="text-muted">识字 ${litCount} · 算数 ${mathCount} · 英语 ${enCount}</p>
           </div>
         </div>
         <div class="card nav-card" onclick="App.navigate('entry')">
@@ -463,7 +464,8 @@ const App = {
     const modules = window.APP_DATA.KIDS_MODULES;
     const selMod = this._libMod || modules[0].id;
     const allCards = this.allCards();
-    const cards = allCards.filter(c => c.module === selMod && c.age <= age);
+    // 家长录入的卡片始终可见（不受年龄限制），内置卡片按年龄过滤
+    const cards = allCards.filter(c => c.module === selMod && (c.custom || c.age <= age));
     const units = window.APP_DATA.MODULE_UNITS[selMod] || [];
     const selUnit = this._libUnit || 'all';
     const selStar = this._libStar != null ? this._libStar : -1; // -1=全部
@@ -598,7 +600,7 @@ const App = {
     return `
       <div class="page-header">
         <h1 class="page-title">知识录入</h1>
-        <p class="page-subtitle">输入标题，自动扩展内容、分类、分级</p>
+        <p class="page-subtitle">输入标题自动扩展：成语/古诗/词语/英文/算数(加减乘除/时间/钱币)</p>
       </div>
 
       <div class="card mb-3">
@@ -663,21 +665,27 @@ const App = {
     const title = document.getElementById('entry-title').value.trim();
     const hint = document.getElementById('autoHint');
     if (!title) { hint.textContent = ''; return; }
-    const inIdiom = window.APP_DATA.IDIOM_DICT[title];
-    const inPoem = window.APP_DATA.POEM_DICT[title];
-    if (inIdiom) {
-      hint.textContent = '✓ 命中本地成语词典';
-      hint.style.color = '#0d9488';
-    } else if (inPoem) {
-      hint.textContent = '✓ 命中本地古诗词典';
-      hint.style.color = '#0d9488';
-    } else {
-      hint.textContent = '本地未命中，将尝试网络字典查询';
-      hint.style.color = '#6b7280';
+    const AD = window.APP_DATA;
+    // 本地词典命中
+    if (AD.IDIOM_DICT[title]) { hint.textContent = '✓ 命中本地成语词典'; hint.style.color = '#0d9488'; return; }
+    if (AD.POEM_DICT[title]) { hint.textContent = '✓ 命中本地古诗词典'; hint.style.color = '#0d9488'; return; }
+    if (AD.WORD_DICT[title]) { hint.textContent = '✓ 命中本地词语词典'; hint.style.color = '#0d9488'; return; }
+    if (AD.ENGLISH_DICT[title.toLowerCase()]) { hint.textContent = '✓ 命中本地英文词典'; hint.style.color = '#0d9488'; return; }
+    // 类型预判
+    if (/[a-zA-Z]/.test(title) && !/[\u4e00-\u9fa5]/.test(title)) {
+      hint.textContent = /\s/.test(title) ? '识别为英文短语，将查询翻译' : '识别为英文单词，将查询释义';
+      hint.style.color = '#6b7280'; return;
     }
+    if (this.detectArithmetic(title)) {
+      hint.textContent = `识别为算数题（${this.detectArithmetic(title).label}）`;
+      hint.style.color = '#6b7280'; return;
+    }
+    hint.textContent = '本地未命中，将尝试网络字典查询';
+    hint.style.color = '#6b7280';
   },
 
   // 自动扩展：本地词典 → 网络字典（多源）→ 智能模板；同时自动分类+分级
+  // 支持：汉字/词语/成语/古诗/谚语/英文单词/算数(加减乘除/比较/时间/钱币/图形)
   async autoExpand() {
     const titleInput = document.getElementById('entry-title');
     const title = titleInput.value.trim();
@@ -687,29 +695,79 @@ const App = {
     const ageSel = document.getElementById('entry-age');
     const hint = document.getElementById('autoHint');
 
-    // 1. 本地成语词典
-    if (window.APP_DATA.IDIOM_DICT[title]) {
-      contentEl.value = window.APP_DATA.IDIOM_DICT[title];
-      this.selectUnit(unitSel, '成语');
-      ageSel.value = '5';
-      hint.textContent = '✓ 命中本地成语词典';
+    const setResult = (content, unitId, age, hintText, toastMsg) => {
+      contentEl.value = content;
+      this.switchEntryModule(this.moduleFromUnit(unitId));
+      this.selectUnit(unitSel, this.unitNameFromId(unitId));
+      ageSel.value = String(age);
+      hint.textContent = hintText;
       hint.style.color = '#0d9488';
-      this.toast('✓ 本地成语释义已填充', 'success');
+      if (toastMsg) this.toast(toastMsg, 'success');
+    };
+
+    // ---- 1. 本地成语词典 ----
+    if (window.APP_DATA.IDIOM_DICT[title]) {
+      setResult(window.APP_DATA.IDIOM_DICT[title], 'idiom', 5, '✓ 命中本地成语词典', '✓ 本地成语释义已填充');
       return;
     }
-    // 2. 本地古诗词典
+    // ---- 2. 本地古诗词典 ----
     if (window.APP_DATA.POEM_DICT[title]) {
       const p = window.APP_DATA.POEM_DICT[title];
-      contentEl.value = `【${p.dynasty}】${p.author}\n${p.content}\n\n点评：${p.hint}`;
-      this.selectUnit(unitSel, '古诗');
-      ageSel.value = '5';
-      hint.textContent = '✓ 命中本地古诗词典';
-      hint.style.color = '#0d9488';
-      this.toast('✓ 本地古诗全文已填充', 'success');
+      setResult(`【${p.dynasty}】${p.author}\n${p.content}\n\n点评：${p.hint}`, 'poem', 5, '✓ 命中本地古诗词典', '✓ 本地古诗全文已填充');
+      return;
+    }
+    // ---- 3. 本地常用词语词典 ----
+    if (window.APP_DATA.WORD_DICT[title]) {
+      setResult(`「${title}」\n${window.APP_DATA.WORD_DICT[title]}`, 'word', 4, '✓ 命中本地词语词典', '✓ 本地词语释义已填充');
+      return;
+    }
+    // ---- 4. 本地英文单词词典 ----
+    const lowerTitle = title.toLowerCase();
+    if (window.APP_DATA.ENGLISH_DICT[lowerTitle]) {
+      const d = window.APP_DATA.ENGLISH_DICT[lowerTitle];
+      setResult(`单词：${title}\n音标：${d.phonetic}\n释义：${d.meaning}\n例句：${d.example}`, 'word', 4, '✓ 命中本地英文词典', '✓ 本地英文释义已填充');
       return;
     }
 
-    // 3. 网络字典查询（多源，带超时）
+    // ---- 5. 英文单词检测（含字母且无中文）----
+    if (/[a-zA-Z]/.test(title) && !/[\u4e00-\u9fa5]/.test(title)) {
+      // 单个字母
+      if (/^[a-zA-Z]$/.test(title)) {
+        setResult(`字母 ${title.toUpperCase()}${title.toLowerCase()}\n大写 ${title.toUpperCase()}，小写 ${title.toLowerCase()}。\n读一读：${title}。`, 'letter', 3, '✓ 识别为字母', '✓ 字母卡片已生成');
+        return;
+      }
+      // 短语/句子（含空格）
+      if (/\s/.test(title)) {
+        hint.textContent = '正在查询英汉翻译...';
+        hint.style.color = '#6b7280';
+        const trans = await this.fetchTranslation(title, 'en|zh-CN');
+        if (trans) {
+          setResult(`${title}\n中文：${trans}\n请跟孩子一起读一读。`, 'phrase', 5, '✓ 英汉翻译已填充', '✓ 英文短语翻译完成');
+        } else {
+          setResult(`${title}\n中文：请家长补充翻译。\n请跟孩子一起读一读。`, 'phrase', 5, '网络翻译暂不可用，已生成模板', '');
+        }
+        return;
+      }
+      // 普通英文单词 → 网络翻译
+      hint.textContent = '正在查询英汉词典...';
+      hint.style.color = '#6b7280';
+      const trans = await this.fetchTranslation(title, 'en|zh-CN');
+      if (trans) {
+        setResult(`单词：${title}\n释义：${trans}\n例句：用「${title}」造一个句子。`, 'word', 4, '✓ 网络英汉词典已填充', '✓ 英文释义已填充');
+      } else {
+        setResult(`单词：${title}\n释义：请家长查词典补充。\n例句：用「${title}」造一个句子。`, 'word', 4, '网络词典暂不可用，已生成模板', '');
+      }
+      return;
+    }
+
+    // ---- 6. 算数题检测 ----
+    const arith = this.detectArithmetic(title);
+    if (arith) {
+      setResult(arith.content, arith.unit, arith.age, `✓ 识别为${arith.label}`, `✓ ${arith.label}卡片已生成`);
+      return;
+    }
+
+    // ---- 7. 网络字典查询（中文词语/成语/古诗/汉字）----
     hint.textContent = '正在查询网络字典，请稍候...';
     hint.style.color = '#6b7280';
     let net = null;
@@ -718,28 +776,143 @@ const App = {
     } catch (e) {
       console.warn('网络查询异常', e);
     }
-
     if (net) {
-      contentEl.value = net.content;
-      if (net.unit) this.selectUnit(unitSel, net.unit);
-      if (net.age) ageSel.value = String(net.age);
-      hint.textContent = `✓ 网络字典已填充（${net.source}）`;
-      hint.style.color = '#0d9488';
-      this.toast(`✓ 网络字典已填充（${net.source}）`, 'success');
+      setResult(net.content, net.unit, net.age, `✓ 网络字典已填充（${net.source}）`, `✓ 网络字典已填充（${net.source}）`);
       return;
     }
 
-    // 4. 智能模板 fallback（网络不可用时）
+    // ---- 8. 智能模板 fallback ----
     const guess = this.guessContent(title);
-    contentEl.value = guess.content;
-    if (guess.unit) this.selectUnit(unitSel, guess.unit);
-    if (guess.age) ageSel.value = String(guess.age);
-    hint.textContent = '网络字典暂不可用，已生成模板，请家长补充内容';
-    hint.style.color = '#d97706';
-    this.toast('网络暂不可用，已按模板生成，请补充后保存', '');
+    setResult(guess.content, guess.unit || 'word', guess.age, '网络字典暂不可用，已生成模板，请家长补充内容', '网络暂不可用，已按模板生成，请补充后保存');
+  },
+
+  // 切换录入页模块（不重渲染，保留已输入内容）
+  switchEntryModule(modId) {
+    if (!modId || this._entryMod === modId) return;
+    this._entryMod = modId;
+    // 更新模块 tab 高亮
+    const tabs = document.querySelectorAll('.mod-tabs .mod-tab');
+    tabs.forEach(t => t.classList.remove('active'));
+    const modules = window.APP_DATA.KIDS_MODULES;
+    const idx = modules.findIndex(m => m.id === modId);
+    if (tabs[idx]) tabs[idx].classList.add('active');
+    // 重建子分类下拉选项
+    const unitSel = document.getElementById('entry-unit');
+    const units = window.APP_DATA.MODULE_UNITS[modId] || [];
+    if (unitSel) {
+      unitSel.innerHTML = units.map(u => `<option value="${u.id}">${u.name}</option>`).join('');
+    }
+  },
+
+  // 识别算数类型：加减乘除/比较/数字/图形/时间/钱币
+  detectArithmetic(title) {
+    const t = title.trim();
+    // 乘法
+    if (/[×x*]/.test(t) || /乘/.test(t)) {
+      const m = t.match(/(\d+)\s*[×x*]\s*(\d+)/) || t.match(/(\d+)\s*乘\s*(\d+)/);
+      if (m) {
+        const [_, a, b] = m.map(Number);
+        const r = a * b;
+        return {
+          content: `${a} × ${b} = ?\n${b} 个 ${a} 相加：${Array(b).fill(a).join(' + ')} = ${r}。\n所以 ${a} × ${b} = ${r}。`,
+          unit: 'muldiv', age: 6, label: '乘法'
+        };
+      }
+      return { content: `乘法：${t}\n请家长用实物演示几个几相加。\n例如：3 × 2 表示 2 个 3 相加。`, unit: 'muldiv', age: 6, label: '乘法' };
+    }
+    // 除法
+    if (/[÷/]/.test(t) || /除以|除/.test(t)) {
+      const m = t.match(/(\d+)\s*[÷/]\s*(\d+)/) || t.match(/(\d+)\s*除以\s*(\d+)/);
+      if (m) {
+        const [_, a, b] = m.map(Number);
+        if (b !== 0 && a % b === 0) {
+          const r = a / b;
+          return {
+            content: `${a} ÷ ${b} = ?\n把 ${a} 平均分成 ${b} 份，每份是 ${r}。\n所以 ${a} ÷ ${b} = ${r}。`,
+            unit: 'muldiv', age: 6, label: '除法'
+          };
+        }
+      }
+      return { content: `除法：${t}\n把东西平均分成几份，用除法。\n请家长用实物演示平均分。`, unit: 'muldiv', age: 6, label: '除法' };
+    }
+    // 加法
+    if (/\+/.test(t) || /加/.test(t)) {
+      const m = t.match(/(\d+)\s*\+\s*(\d+)/) || t.match(/(\d+)\s*加\s*(\d+)/);
+      if (m) {
+        const [_, a, b] = m.map(Number);
+        const r = a + b;
+        return {
+          content: `${a} + ${b} = ?\n${a} 再加 ${b}，一共 ${r}。\n所以 ${a} + ${b} = ${r}。`,
+          unit: 'addsub', age: 5, label: '加法'
+        };
+      }
+      return { content: `加法：${t}\n把两堆东西合在一起，就是加法。\n请家长用实物演示。`, unit: 'addsub', age: 5, label: '加法' };
+    }
+    // 减法
+    if (/-/.test(t) || /减/.test(t)) {
+      const m = t.match(/(\d+)\s*-\s*(\d+)/) || t.match(/(\d+)\s*减\s*(\d+)/);
+      if (m) {
+        const [_, a, b] = m.map(Number);
+        const r = a - b;
+        return {
+          content: `${a} - ${b} = ?\n从 ${a} 里拿走 ${b}，还剩 ${r}。\n所以 ${a} - ${b} = ${r}。`,
+          unit: 'addsub', age: 5, label: '减法'
+        };
+      }
+    }
+    // 比较大小
+    if (/[><]/.test(t) || /比.*大|比.*小|大小/.test(t)) {
+      return {
+        content: `比较：${t}\n用「>」表示大于，「<」表示小于，「=」表示等于。\n请家长用实物（如积木）比较多少。`,
+        unit: 'compare', age: 4, label: '比较大小'
+      };
+    }
+    // 纯数字
+    if (/^[0-9]+$/.test(t)) {
+      return {
+        content: `认识数字 ${t}\n${t} 像什么？请家长引导联想。\n点数：数出 ${t} 个物品。\n找一找：生活中哪里有 ${t}？`,
+        unit: 'number', age: 3, label: '数字认知'
+      };
+    }
+    // 图形
+    if (/[圆方圆三角长方]/.test(t) || /形/.test(t)) {
+      return {
+        content: `图形：${t}\n请家长带孩子观察生活中的${t}。\n说一说：${t}有什么特征？\n画一画：画出${t}。`,
+        unit: 'shape', age: 4, label: '图形'
+      };
+    }
+    // 时间
+    if (/[时钟点秒分时]/.test(t)) {
+      return {
+        content: `时间：${t}\n钟面上短针是时针，长针是分针。\n请家长带孩子看钟表，认识整点和半点。`,
+        unit: 'time', age: 5, label: '时间'
+      };
+    }
+    // 钱币
+    if (/[元角分币钱块]/.test(t)) {
+      return {
+        content: `钱币：${t}\n人民币单位：元、角、分。\n1 元 = 10 角，1 角 = 10 分。\n请家长用真钱币让孩子认识。`,
+        unit: 'money', age: 5, label: '钱币'
+      };
+    }
+    return null;
+  },
+
+  // 网络翻译（MyMemory，支持 CORS）
+  async fetchTranslation(text, langpair) {
+    try {
+      const url = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(text)}&langpair=${langpair}`;
+      const res = await fetch(url, { signal: AbortSignal.timeout(4500) });
+      if (!res.ok) return null;
+      const data = await res.json();
+      const t = data && data.responseData && data.responseData.translatedText;
+      if (t && !t.includes('WARNING') && !t.includes('MYMEMORY')) return t;
+    } catch (e) { /* 网络失败 */ }
+    return null;
   },
 
   selectUnit(sel, name) {
+    if (!name) return;
     const opt = [...sel.options].find(o => o.text.includes(name));
     if (opt) sel.value = opt.value;
   },
@@ -768,7 +941,7 @@ const App = {
           if (data.jianjie || data.explanation) parts.push(`释义：${data.jianjie || data.explanation}`);
           if (data.chuchu || data.source) parts.push(`出处：${data.chuchu || data.source}`);
           if (data.liju || data.example) parts.push(`例句：${data.liju || data.example}`);
-          if (parts.length > 1) return { content: parts.join('\n'), unit: '成语', age: 6, source: '网络成语' };
+          if (parts.length > 1) return { content: parts.join('\n'), unit: 'idiom', age: 6, source: '网络成语' };
         }
       } catch (e) { /* 继续下一个源 */ }
     }
@@ -792,7 +965,7 @@ const App = {
           if (poem.content || data.content) parts.push(poem.content || data.content);
           if (poem.translate || data.translate) parts.push(`译文：${poem.translate || data.translate}`);
           if (poem.appreciation || data.appreciation) parts.push(`赏析：${poem.appreciation || data.appreciation}`);
-          if (parts.length) return { content: parts.join('\n'), unit: '古诗', age: 6, source: '网络古诗' };
+          if (parts.length) return { content: parts.join('\n'), unit: 'poem', age: 6, source: '网络古诗' };
         }
       } catch (e) { /* 继续下一个源 */ }
     }
@@ -815,7 +988,7 @@ const App = {
             if (data.jiegou) parts.push(`结构：${data.jiegou}`);
             parts.push(`组词：请家长补充常用词`);
             parts.push(`造句：用「${title}」说一句话`);
-            return { content: parts.join('\n'), unit: '汉字', age: 4, source: '网络汉字' };
+            return { content: parts.join('\n'), unit: 'hanzi', age: 4, source: '网络汉字' };
           }
         } catch (e) { /* 继续 */ }
       }
@@ -824,41 +997,48 @@ const App = {
     return null;
   },
 
-  // 智能模板：根据标题特征猜测内容、分类、年龄
+  // 智能模板：根据标题特征猜测内容、分类、年龄（算数已在 detectArithmetic 处理）
   guessContent(title) {
     const len = title.length;
     // 单字汉字
     if (len === 1 && /[\u4e00-\u9fa5]/.test(title)) {
       return {
         content: `汉字「${title}」\n字形：请观察「${title}」的结构。\n字义：请家长补充含义。\n组词：${title} + 常用词。\n造句：用「${title}」说一句话。`,
-        unit: '汉字', age: 4
+        unit: 'hanzi', age: 4
       };
     }
-    // 算数题（含数字和加减号）
-    if (/[0-9]/.test(title) && /[+\-]/.test(title)) {
+    // 2 字词语
+    if (len === 2 && /^[\u4e00-\u9fa5]+$/.test(title)) {
       return {
-        content: `算数：${title}\n请家长用实物演示计算过程。\n例如：用苹果、积木等让孩子点数。\n练习：再出 2 道类似题目。`,
-        unit: '加减法', age: 5
+        content: `词语：${title}\n释义：请家长查词典补充。\n例句：用「${title}」造句示范。\n近义词：请家长补充。`,
+        unit: 'word', age: 4
       };
     }
-    // 纯数字
-    if (/^[0-9]+$/.test(title)) {
+    // 4 字（可能是成语）
+    if (len === 4 && /^[\u4e00-\u9fa5]+$/.test(title)) {
       return {
-        content: `认识数字 ${title}\n${title} 像什么？请家长引导联想。\n点数：数出 ${title} 个物品。\n找一找：生活中哪里有 ${title}？`,
-        unit: '数字认知', age: 3
+        content: `成语：${title}\n释义：请家长查成语词典补充。\n典故：请家长讲一讲相关故事。\n例句：用「${title}」说一句话。`,
+        unit: 'idiom', age: 6
       };
     }
-    // 2-4 字中文（可能是词语或成语）
-    if (len >= 2 && len <= 4 && /^[\u4e00-\u9fa5]+$/.test(title)) {
+    // 3 字中文
+    if (len === 3 && /^[\u4e00-\u9fa5]+$/.test(title)) {
       return {
-        content: `「${title}」\n释义：请家长查字典补充。\n例句：用「${title}」造句示范。\n延伸：找一找生活中的${title}。`,
-        unit: len === 4 ? '成语' : '汉字', age: len === 4 ? 6 : 5
+        content: `「${title}」\n释义：请家长补充含义。\n例句：用「${title}」说一句话。`,
+        unit: 'word', age: 5
+      };
+    }
+    // 中文长句/其他
+    if (/[\u4e00-\u9fa5]/.test(title)) {
+      return {
+        content: `${title}\n请家长补充学习内容。`,
+        unit: 'word', age: 5
       };
     }
     // 默认
     return {
       content: `${title}\n请家长补充学习内容。`,
-      unit: null, age: 4
+      unit: 'word', age: 4
     };
   },
 
@@ -868,9 +1048,11 @@ const App = {
     const unit = document.getElementById('entry-unit').value;
     const age = parseInt(document.getElementById('entry-age').value);
     if (!title || !content) return this.toast('标题和内容不能为空', 'error');
+    // 根据所选子分类自动校正所属模块，避免模块与分类不匹配
+    const realMod = this.moduleFromUnit(unit) || mod;
     const card = {
       id: 'cc-' + Date.now(),
-      module: mod, unit, title, content, age,
+      module: realMod, unit, title, content, age,
       type: 'card', custom: true
     };
     this.state.customCards = this.state.customCards || [];
@@ -882,6 +1064,25 @@ const App = {
     document.getElementById('autoHint').textContent = '';
     this.toast('卡片已保存 ✓', 'success');
     this.render();
+  },
+
+  // 根据子分类 id 反查所属模块
+  moduleFromUnit(unitId) {
+    const mu = window.APP_DATA.MODULE_UNITS;
+    for (const mod in mu) {
+      if (mu[mod].some(u => u.id === unitId)) return mod;
+    }
+    return null;
+  },
+
+  // 根据子分类 id 反查子分类名称
+  unitNameFromId(unitId) {
+    const mu = window.APP_DATA.MODULE_UNITS;
+    for (const mod in mu) {
+      const u = mu[mod].find(x => x.id === unitId);
+      if (u) return u.name;
+    }
+    return null;
   },
 
   deleteCustomCard(id) {
@@ -921,6 +1122,7 @@ const App = {
         <div class="graph-legend">
           <span class="legend-item"><span class="legend-dot" style="background:#4f46e5"></span>识字</span>
           <span class="legend-item"><span class="legend-dot" style="background:#0d9488"></span>算数</span>
+          <span class="legend-item"><span class="legend-dot" style="background:#db2777"></span>英语</span>
           <span class="legend-item"><span class="legend-dot" style="background:#9ca3af"></span>未开始</span>
           <span class="legend-item"><span class="legend-dot" style="background:#f59e0b"></span>学习中</span>
           <span class="legend-item"><span class="legend-dot" style="background:#10b981"></span>已掌握</span>
@@ -944,10 +1146,14 @@ const App = {
     const moduleUnits = window.APP_DATA.MODULE_UNITS;
     const allCards = this.allCards();
     const W = 800, H = 500;
-    const modPos = {
-      literacy: { x: W * 0.3, y: H * 0.5 },
-      arithmetic: { x: W * 0.7, y: H * 0.5 }
-    };
+    // 动态计算模块位置（均匀分布在画布上）
+    const nMod = modules.length;
+    const modPos = {};
+    modules.forEach((m, i) => {
+      const angle = -Math.PI / 2 + i * 2 * Math.PI / nMod;
+      const r = W * 0.28;
+      modPos[m.id] = { x: W / 2 + r * Math.cos(angle), y: H / 2 + r * Math.sin(angle) };
+    });
     let nodes = [];
     let edges = [];
 

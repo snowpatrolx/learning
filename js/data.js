@@ -1,32 +1,44 @@
 // ============================================================
-// 儿童学习陪伴（家长端）- 数据层 v1.03
-// 核心功能：识字 + 算数；知识图谱、知识树、自动扩展词典
+// 儿童学习陪伴（家长端）- 数据层 v1.04
+// 核心功能：识字 + 算数 + 英语；知识图谱、知识树、自动扩展词典
 // ============================================================
 
-const APP_VERSION = '1.03';
+const APP_VERSION = '1.04';
 
 // ---------- 年龄分层 ----------
 const KIDS_AGE_GROUPS = [3, 4, 5, 6];
 
-// ---------- 学习模块（仅识字 + 算数） ----------
+// ---------- 学习模块 ----------
 const KIDS_MODULES = [
   { id: 'literacy', name: '识字', icon: '字', color: '#4f46e5' },
-  { id: 'arithmetic', name: '算数', icon: '数', color: '#0d9488' }
+  { id: 'arithmetic', name: '算数', icon: '数', color: '#0d9488' },
+  { id: 'english', name: '英语', icon: 'A', color: '#db2777' }
 ];
 
-// 模块下的子分类（用于知识图谱分层）
+// 模块下的子分类（用于知识图谱分层与录入自动识别）
 const MODULE_UNITS = {
   literacy: [
     { id: 'pinyin', name: '拼音', ages: [3, 4] },
     { id: 'hanzi', name: '汉字', ages: [4, 5, 6] },
+    { id: 'word', name: '词语', ages: [4, 5, 6] },
     { id: 'idiom', name: '成语', ages: [5, 6] },
-    { id: 'poem', name: '古诗', ages: [5, 6] }
+    { id: 'poem', name: '古诗', ages: [5, 6] },
+    { id: 'proverb', name: '谚语', ages: [5, 6] }
   ],
   arithmetic: [
     { id: 'number', name: '数字认知', ages: [3, 4] },
     { id: 'compare', name: '比较大小', ages: [4, 5] },
     { id: 'shape', name: '图形', ages: [4, 5, 6] },
-    { id: 'addsub', name: '加减法', ages: [5, 6] }
+    { id: 'addsub', name: '加减法', ages: [5, 6] },
+    { id: 'muldiv', name: '乘除法', ages: [6] },
+    { id: 'wordproblem', name: '应用题', ages: [5, 6] },
+    { id: 'time', name: '时间', ages: [5, 6] },
+    { id: 'money', name: '钱币', ages: [5, 6] }
+  ],
+  english: [
+    { id: 'letter', name: '字母', ages: [3, 4] },
+    { id: 'word', name: '单词', ages: [4, 5, 6] },
+    { id: 'phrase', name: '日常用语', ages: [5, 6] }
   ]
 };
 
@@ -78,7 +90,44 @@ const KIDS_CARDS = [
   { id: 'add-3+2', module: 'arithmetic', unit: 'addsub', title: '3 + 2 = ?', content: '3 只小鸡又来 2 只，一共 5 只。\n3 + 2 = 5', age: 5 },
   { id: 'sub-3-1', module: 'arithmetic', unit: 'addsub', title: '3 - 1 = ?', content: '3 个苹果吃了 1 个，还剩 2 个。\n3 - 1 = 2', age: 6 },
   { id: 'sub-5-2', module: 'arithmetic', unit: 'addsub', title: '5 - 2 = ?', content: '5 朵花摘了 2 朵，还剩 3 朵。\n5 - 2 = 3', age: 6 },
-  { id: 'sub-10-3', module: 'arithmetic', unit: 'addsub', title: '10 - 3 = ?', content: '10 颗糖吃了 3 颗，还剩 7 颗。\n10 - 3 = 7', age: 6 }
+  { id: 'sub-10-3', module: 'arithmetic', unit: 'addsub', title: '10 - 3 = ?', content: '10 颗糖吃了 3 颗，还剩 7 颗。\n10 - 3 = 7', age: 6 },
+  // ===== 算数 - 乘除法 =====
+  { id: 'mul-intro', module: 'arithmetic', unit: 'muldiv', title: '认识乘法', content: '几个相同的数相加，可以用乘法表示。\n例如：2 + 2 + 2 = 6，也就是 2 × 3 = 6。\n用「×」表示乘。', age: 6 },
+  { id: 'mul-2x3', module: 'arithmetic', unit: 'muldiv', title: '2 × 3 = ?', content: '3 个 2 相加：2 + 2 + 2 = 6。\n所以 2 × 3 = 6。', age: 6 },
+  { id: 'mul-3x4', module: 'arithmetic', unit: 'muldiv', title: '3 × 4 = ?', content: '4 个 3 相加：3 + 3 + 3 + 3 = 12。\n所以 3 × 4 = 12。', age: 6 },
+  { id: 'div-intro', module: 'arithmetic', unit: 'muldiv', title: '认识除法', content: '把一些东西平均分成几份，就是除法。\n例如：6 个苹果平均分给 2 个人，每人 3 个。\n6 ÷ 2 = 3，用「÷」表示除。', age: 6 },
+  { id: 'div-6-2', module: 'arithmetic', unit: 'muldiv', title: '6 ÷ 2 = ?', content: '6 个苹果平均分给 2 人，每人 3 个。\n6 ÷ 2 = 3。', age: 6 },
+  // ===== 算数 - 应用题 =====
+  { id: 'wp-apple', module: 'arithmetic', unit: 'wordproblem', title: '苹果应用题', content: '小明有 3 个苹果，妈妈又给了他 2 个，小明现在有几个苹果？\n列式：3 + 2 = 5（个）\n答：小明现在有 5 个苹果。', age: 5 },
+  { id: 'wp-candy', module: 'arithmetic', unit: 'wordproblem', title: '糖果应用题', content: '小红有 8 颗糖，吃了 3 颗，还剩几颗？\n列式：8 - 3 = 5（颗）\n答：还剩 5 颗糖。', age: 5 },
+  { id: 'wp-flower', module: 'arithmetic', unit: 'wordproblem', title: '花朵应用题', content: '花园里有 5 朵红花，4 朵黄花，一共有几朵花？\n列式：5 + 4 = 9（朵）\n答：一共有 9 朵花。', age: 6 },
+  // ===== 算数 - 时间 =====
+  { id: 'time-clock', module: 'arithmetic', unit: 'time', title: '认识钟表', content: '钟面上有 12 个数字，又短又粗的是时针，又细又长的是分针。\n时针走一大格是 1 小时，分针走一圈是 1 小时。', age: 5 },
+  { id: 'time-hour', module: 'arithmetic', unit: 'time', title: '认识整点', content: '分针指向 12，时针指向几，就是几点整。\n例如：分针指向 12，时针指向 3，就是 3 点整（3:00）。', age: 5 },
+  { id: 'time-half', module: 'arithmetic', unit: 'time', title: '认识半点', content: '分针指向 6，时针走过几，就是几点半。\n例如：分针指向 6，时针走过 4，就是 4 点半（4:30）。', age: 6 },
+  // ===== 算数 - 钱币 =====
+  { id: 'money-unit', module: 'arithmetic', unit: 'money', title: '认识人民币', content: '人民币的单位有元、角、分。\n1 元 = 10 角，1 角 = 10 分。\n常见硬币：1 元、5 角、1 角。', age: 5 },
+  { id: 'money-add', module: 'arithmetic', unit: 'money', title: '钱币计算', content: '一支铅笔 2 元，一块橡皮 1 元，一共多少钱？\n2 元 + 1 元 = 3 元。\n答：一共 3 元。', age: 6 },
+  // ===== 英语 - 字母 =====
+  { id: 'en-A', module: 'english', unit: 'letter', title: '字母 Aa', content: '大写 A，小写 a。\nA is for Apple（苹果）。\n读一读：A, a, A。', age: 3 },
+  { id: 'en-B', module: 'english', unit: 'letter', title: '字母 Bb', content: '大写 B，小写 b。\nB is for Banana（香蕉）。\n读一读：B, b, B。', age: 3 },
+  { id: 'en-C', module: 'english', unit: 'letter', title: '字母 Cc', content: '大写 C，小写 c。\nC is for Cat（猫）。\n读一读：C, c, C。', age: 4 },
+  // ===== 英语 - 单词 =====
+  { id: 'en-apple', module: 'english', unit: 'word', title: 'apple 苹果', content: '单词：apple\n中文：苹果\n例句：I like apples.（我喜欢苹果。）', age: 4 },
+  { id: 'en-cat', module: 'english', unit: 'word', title: 'cat 猫', content: '单词：cat\n中文：猫\n例句：The cat is small.（这只猫很小。）', age: 4 },
+  { id: 'en-dog', module: 'english', unit: 'word', title: 'dog 狗', content: '单词：dog\n中文：狗\n例句：I have a dog.（我有一只狗。）', age: 4 },
+  { id: 'en-mom', module: 'english', unit: 'word', title: 'mom 妈妈', content: '单词：mom / mother\n中文：妈妈\n例句：I love my mom.（我爱妈妈。）', age: 4 },
+  // ===== 英语 - 日常用语 =====
+  { id: 'en-hello', module: 'english', unit: 'phrase', title: 'Hello 你好', content: 'Hello! 你好！\nHi! 嗨！\nGood morning! 早上好！', age: 5 },
+  { id: 'en-thanks', module: 'english', unit: 'phrase', title: 'Thank you 谢谢', content: 'Thank you. 谢谢。\nYou are welcome. 不客气。\nSorry. 对不起。', age: 5 },
+  { id: 'en-bye', module: 'english', unit: 'phrase', title: 'Goodbye 再见', content: 'Goodbye. 再见。\nSee you. 回头见。\nBye-bye. 拜拜。', age: 5 },
+  // ===== 识字 - 谚语 =====
+  { id: 'pv-rain', module: 'literacy', unit: 'proverb', title: '谚语：朝霞不出门', content: '朝霞不出门，晚霞行千里。\n意思：早上有霞光可能会下雨，不宜出门；傍晚有霞光预示第二天天气好，可以远行。', age: 5 },
+  { id: 'pv-rain2', module: 'literacy', unit: 'proverb', title: '谚语：燕子低飞', content: '燕子低飞蛇过道，大雨不久就来到。\n意思：燕子飞得低、蛇从路上爬过，说明快要下大雨了。', age: 6 },
+  // ===== 识字 - 词语 =====
+  { id: 'wd-happy', module: 'literacy', unit: 'word', title: '词语：开心', content: '词语：开心\n意思：心情快乐、高兴。\n例句：今天我玩得很开心。\n近义词：高兴、快乐', age: 4 },
+  { id: 'wd-brave', module: 'literacy', unit: 'word', title: '词语：勇敢', content: '词语：勇敢\n意思：不怕危险和困难。\n例句：他是一个勇敢的孩子。\n近义词：英勇、大胆', age: 5 },
+  { id: 'wd-kind', module: 'literacy', unit: 'word', title: '词语：善良', content: '词语：善良\n意思：心地好，愿意帮助别人。\n例句：她有一颗善良的心。', age: 5 }
 ];
 
 // ---------- 自动扩展词典：成语 ----------
@@ -162,6 +211,77 @@ const POEM_DICT = {
   '所见': { author: '袁枚', dynasty: '清', content: '牧童骑黄牛，歌声振林樾。\n意欲捕鸣蝉，忽然闭口立。', hint: '牧童捕蝉的生动画面' }
 };
 
+// ---------- 自动扩展词典：英文单词 ----------
+const ENGLISH_DICT = {
+  'apple': { phonetic: '/ˈæpl/', meaning: '苹果', example: 'I like apples. 我喜欢苹果。' },
+  'banana': { phonetic: '/bəˈnɑːnə/', meaning: '香蕉', example: 'The banana is yellow. 香蕉是黄色的。' },
+  'cat': { phonetic: '/kæt/', meaning: '猫', example: 'The cat is small. 这只猫很小。' },
+  'dog': { phonetic: '/dɒɡ/', meaning: '狗', example: 'I have a dog. 我有一只狗。' },
+  'book': { phonetic: '/bʊk/', meaning: '书', example: 'This is a book. 这是一本书。' },
+  'pen': { phonetic: '/pen/', meaning: '钢笔', example: 'I have a pen. 我有一支钢笔。' },
+  'pencil': { phonetic: '/ˈpensl/', meaning: '铅笔', example: 'This is my pencil. 这是我的铅笔。' },
+  'water': { phonetic: '/ˈwɔːtə/', meaning: '水', example: 'I drink water. 我喝水。' },
+  'milk': { phonetic: '/mɪlk/', meaning: '牛奶', example: 'I drink milk. 我喝牛奶。' },
+  'bread': { phonetic: '/bred/', meaning: '面包', example: 'I eat bread. 我吃面包。' },
+  'egg': { phonetic: '/eɡ/', meaning: '鸡蛋', example: 'I eat an egg. 我吃一个鸡蛋。' },
+  'fish': { phonetic: '/fɪʃ/', meaning: '鱼', example: 'The fish can swim. 鱼会游泳。' },
+  'bird': { phonetic: '/bɜːd/', meaning: '鸟', example: 'The bird can fly. 鸟会飞。' },
+  'pig': { phonetic: '/pɪɡ/', meaning: '猪', example: 'The pig is fat. 猪很胖。' },
+  'cow': { phonetic: '/kaʊ/', meaning: '牛', example: 'The cow gives milk. 牛产奶。' },
+  'sun': { phonetic: '/sʌn/', meaning: '太阳', example: 'The sun is hot. 太阳很热。' },
+  'moon': { phonetic: '/muːn/', meaning: '月亮', example: 'The moon is bright. 月亮很亮。' },
+  'star': { phonetic: '/stɑː/', meaning: '星星', example: 'I see a star. 我看到一颗星星。' },
+  'tree': { phonetic: '/triː/', meaning: '树', example: 'The tree is tall. 这棵树很高。' },
+  'flower': { phonetic: '/ˈflaʊə/', meaning: '花', example: 'The flower is red. 这朵花是红色的。' },
+  'car': { phonetic: '/kɑː/', meaning: '汽车', example: 'The car is fast. 汽车很快。' },
+  'bus': { phonetic: '/bʌs/', meaning: '公交车', example: 'I take the bus. 我坐公交车。' },
+  'bike': { phonetic: '/baɪk/', meaning: '自行车', example: 'I ride a bike. 我骑自行车。' },
+  'ball': { phonetic: '/bɔːl/', meaning: '球', example: 'I play with a ball. 我玩球。' },
+  'doll': { phonetic: '/dɒl/', meaning: '洋娃娃', example: 'I have a doll. 我有一个洋娃娃。' },
+  'red': { phonetic: '/red/', meaning: '红色的', example: 'The apple is red. 苹果是红色的。' },
+  'blue': { phonetic: '/bluː/', meaning: '蓝色的', example: 'The sky is blue. 天空是蓝色的。' },
+  'yellow': { phonetic: '/ˈjeləʊ/', meaning: '黄色的', example: 'The banana is yellow. 香蕉是黄色的。' },
+  'green': { phonetic: '/ɡriːn/', meaning: '绿色的', example: 'The tree is green. 树是绿色的。' },
+  'one': { phonetic: '/wʌn/', meaning: '一', example: 'I have one apple. 我有一个苹果。' },
+  'two': { phonetic: '/tuː/', meaning: '二', example: 'I have two eyes. 我有两只眼睛。' },
+  'three': { phonetic: '/θriː/', meaning: '三', example: 'I have three books. 我有三本书。' },
+  'mom': { phonetic: '/mɒm/', meaning: '妈妈', example: 'I love my mom. 我爱妈妈。' },
+  'dad': { phonetic: '/dæd/', meaning: '爸爸', example: 'I love my dad. 我爱爸爸。' },
+  'hello': { phonetic: '/həˈləʊ/', meaning: '你好', example: 'Hello! 你好！' },
+  'goodbye': { phonetic: '/ˌɡʊdˈbaɪ/', meaning: '再见', example: 'Goodbye! 再见！' },
+  'thanks': { phonetic: '/θæŋks/', meaning: '谢谢', example: 'Thanks! 谢谢！' },
+  'yes': { phonetic: '/jes/', meaning: '是的', example: 'Yes, I do. 是的。' },
+  'no': { phonetic: '/nəʊ/', meaning: '不', example: 'No, thanks. 不，谢谢。' },
+  'big': { phonetic: '/bɪɡ/', meaning: '大的', example: 'The elephant is big. 大象很大。' },
+  'small': { phonetic: '/smɔːl/', meaning: '小的', example: 'The ant is small. 蚂蚁很小。' },
+  'happy': { phonetic: '/ˈhæpi/', meaning: '开心的', example: 'I am happy. 我很开心。' },
+  'sad': { phonetic: '/sæd/', meaning: '伤心的', example: 'I am sad. 我很伤心。' }
+};
+
+// ---------- 自动扩展词典：常用词语 ----------
+const WORD_DICT = {
+  '开心': '心情快乐、高兴。\n例句：今天我玩得很开心。\n近义词：高兴、快乐',
+  '高兴': '愉快而兴奋。\n例句：收到礼物我很高兴。\n近义词：开心、快乐',
+  '勇敢': '不怕危险和困难。\n例句：他是一个勇敢的孩子。\n近义词：英勇、大胆',
+  '善良': '心地好，愿意帮助别人。\n例句：她有一颗善良的心。\n近义词：仁慈、好心',
+  '聪明': '智力发达，记忆和理解能力强。\n例句：这个孩子很聪明。\n近义词：机灵、聪慧',
+  '勤劳': '努力劳动，不怕辛苦。\n例句：蜜蜂是勤劳的小动物。\n近义词：勤奋、勤快',
+  '诚实': '言行跟内心思想一致，不虚假。\n例句：我们要做诚实的孩子。\n近义词：老实、真诚',
+  '友谊': '朋友之间的交情。\n例句：他们的友谊很深厚。\n近义词：友情、交情',
+  '认真': '严肃对待，不马虎。\n例句：他学习很认真。\n近义词：仔细、专心',
+  '努力': '把力量尽量使出来。\n例句：只要努力就会成功。\n近义词：尽力、奋发',
+  '分享': '和别人共同享受。\n例句：好东西要和朋友分享。',
+  '感谢': '因对方的好意或帮助而感激。\n例句：我感谢老师的教导。\n近义词：谢谢、感激',
+  '抱歉': '心中不安，觉得对不起别人。\n例句：抱歉，我迟到了。\n近义词：对不起、歉意',
+  '珍惜': '珍重爱惜。\n例句：我们要珍惜时间。\n近义词：爱惜、珍视',
+  '希望': '心里想着达到某种目的或出现某种情况。\n例句：我希望快快长大。\n近义词：期望、盼望',
+  '梦想': '对未来的期望和追求。\n例句：我的梦想是当一名医生。',
+  '耐心': '不急躁，不厌烦。\n例句：妈妈很有耐心地教我。',
+  '细心': '用心仔细。\n例句：做题要细心。\n近义词：仔细、认真',
+  '自信': '相信自己。\n例句：我们要自信地面对挑战。',
+  '独立': '依靠自己的力量去做。\n例句：我学会了独立穿衣。'
+};
+
 // ---------- 每日任务模板 ----------
 const DAILY_TASK_TEMPLATES = {
   life: [
@@ -220,7 +340,7 @@ const DIMENSIONS = [
 if (typeof window !== 'undefined') {
   window.APP_DATA = {
     APP_VERSION, KIDS_AGE_GROUPS, KIDS_MODULES, MODULE_UNITS, KIDS_CARDS,
-    IDIOM_DICT, POEM_DICT, DAILY_TASK_TEMPLATES,
+    IDIOM_DICT, POEM_DICT, ENGLISH_DICT, WORD_DICT, DAILY_TASK_TEMPLATES,
     ACHIEVEMENTS, GIFT_EXCHANGE, DIMENSIONS
   };
 }
